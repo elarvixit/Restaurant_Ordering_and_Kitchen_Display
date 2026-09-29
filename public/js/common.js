@@ -145,6 +145,34 @@ const App = (() => {
     });
   }
 
+  const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+  // Mini picture for a dish: its emoji on a soft gradient tinted by category (5 tones).
+  function dishPic(item, size = 'md') {
+    const tone = ((item?.category_id ?? 0) % 5 + 5) % 5;
+    return `<span class="dish-pic ${size}" data-tone="${tone}" aria-hidden="true"><span>${esc(item?.emoji || '🍽️')}</span></span>`;
+  }
+
+  // Animates a number from 0 up to its value (formatted by fmt). Skipped for reduced motion.
+  function countUp(el, value, fmt, ms = 700) {
+    if (!el) return;
+    if (reducedMotion() || !value) { el.textContent = fmt(value); return; }
+    const t0 = performance.now();
+    const step = (t) => {
+      const p = Math.min(1, (t - t0) / ms);
+      el.textContent = fmt(value * (1 - Math.pow(1 - p, 3)));
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  // Replays a CSS animation class on an element.
+  function replay(el, cls) {
+    if (!el || reducedMotion()) return;
+    el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
+    el.addEventListener('animationend', () => el.classList.remove(cls), { once: true });
+  }
+
   function logout(role) { setToken(role, null); location.reload(); }
 
   function syncBadge(el) {
@@ -155,5 +183,6 @@ const App = (() => {
     };
   }
 
-  return { api, ApiError, esc, money, moneyShort, now, minutesSince, clock, duration, live, toast, pinGate, logout, syncBadge };
+  return { api, ApiError, esc, money, moneyShort, now, minutesSince, clock, duration, live, toast, pinGate, logout, syncBadge,
+    dishPic, countUp, replay, reducedMotion };
 })();
