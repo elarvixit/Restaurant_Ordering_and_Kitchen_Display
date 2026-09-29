@@ -3,15 +3,28 @@
 // Postgres via PGlite (the SQL that runs on Vercel/Neon). Run: npm test
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { sqliteDb, pgliteDb } = require('../src/sql');
+const { sqliteDb, pgliteDb, postgresDb } = require('../src/sql');
 const { setup: setupSchema } = require('../src/schema');
 const { createStore } = require('../src/store');
 
 const MIN = 60_000;
 
+// The standard pg driver (used for Supabase) talking TCP to a real Postgres wire server.
+let nextPort = 55400 + Math.floor(Math.random() * 400);
+async function pgDriverDb() {
+  const { PGlite } = await import('@electric-sql/pglite');
+  const { PGLiteSocketServer } = await import('@electric-sql/pglite-socket');
+  const port = nextPort++;
+  const server = new PGLiteSocketServer({ db: await PGlite.create(), port, host: '127.0.0.1' });
+  await server.start();
+  const db = postgresDb(`postgres://postgres@127.0.0.1:${port}/postgres`);
+  return { ...db, close: async () => { await db.close(); await server.stop(); } };
+}
+
 const ENGINES = [
   ['sqlite', async () => sqliteDb(':memory:')],
   ['postgres', () => pgliteDb()],
+  ['postgres/pg-driver', pgDriverDb],
 ];
 
 for (const [engine, makeDb] of ENGINES) {

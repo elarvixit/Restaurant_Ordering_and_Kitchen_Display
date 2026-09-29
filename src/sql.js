@@ -1,7 +1,8 @@
 'use strict';
 // One small async database interface, three engines:
 //   sqlite   - local file via Node's built-in node:sqlite (npm start)
-//   postgres - Neon serverless Postgres (Vercel, DATABASE_URL)
+//   postgres - any Postgres via DATABASE_URL / POSTGRES_URL: Neon (its serverless driver)
+//              or Supabase / self-hosted (the standard pg driver), chosen from the address
 //   pglite   - in-process Postgres, used by the tests to prove the Postgres SQL
 //
 // Every engine exposes:
@@ -64,13 +65,30 @@ function sqliteDb(file) {
   };
 }
 
-function postgresDb(connectionString) {
-  const { Pool, neonConfig, types } = require('@neondatabase/serverless');
-  if (globalThis.WebSocket) neonConfig.webSocketConstructor = globalThis.WebSocket;
-  // BIGINT (timestamps in ms, COUNT, SUM) and NUMERIC (AVG) arrive as strings by default.
+// Neon's driver speaks to Neon's WebSocket proxy only; everything else gets node-postgres.
+function makePool(connectionString) {
+  const host = (() => { try { return new URL(connectionString).hostname; } catch { return ''; } })();
+  if (/\.neon\.tech$/.test(host)) {
+    const { Pool, neonConfig, types } = require('@neondatabase/serverless');
+    if (globalThis.WebSocket) neonConfig.webSocketConstructor = globalThis.WebSocket;
+    // BIGINT (timestamps in ms, COUNT, SUM) and NUMERIC (AVG) arrive as strings by default.
+    types.setTypeParser(20, Number);
+    types.setTypeParser(1700, Number);
+    return new Pool({ connectionString, max: 5 });
+  }
+  const { Pool, types } = require('pg');
   types.setTypeParser(20, Number);
   types.setTypeParser(1700, Number);
-  const pool = new Pool({ connectionString, max: 5 });
+  const local = ['localhost', '127.0.0.1', '::1', ''].includes(host);
+  // Hosted Postgres (Supabase) needs TLS. Its certificates are signed by the provider's own CA,
+  // which Node doesn't ship, so the connection is encrypted without CA verification. sslmode is
+  // removed from the URL because pg would otherwise insist on full verification.
+  const url = connectionString.replace(/([?&])sslmode=[^&]*&?/, '$1').replace(/[?&]$/, '');
+  return new Pool({ connectionString: url, max: 3, ssl: local ? false : { rejectUnauthorized: false } });
+}
+
+function postgresDb(connectionString) {
+  const pool = makePool(connectionString);
 
   const wrap = (client) => ({
     dialect: 'postgres',
