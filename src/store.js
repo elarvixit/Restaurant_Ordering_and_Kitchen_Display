@@ -51,7 +51,7 @@ function createStore(db, { now = () => Date.now() } = {}) {
       SELECT id, name, sort_order FROM menu_categories
       WHERE archived_at IS NULL ORDER BY sort_order, name`).all();
     const items = db.q(`
-      SELECT id, category_id, name, price_paise, is_veg, prep_minutes, is_available
+      SELECT id, category_id, name, price_paise, is_veg, prep_minutes, is_available, emoji
       FROM menu_items WHERE archived_at IS NULL ORDER BY name`).all();
     return { categories, items };
   }
@@ -89,23 +89,24 @@ function createStore(db, { now = () => Date.now() } = {}) {
       is_veg: bool(merged.is_veg),
       prep_minutes: int(merged.prep_minutes, 'Prep time', { min: 0, max: 240 }),
       is_available: merged.is_available === undefined ? 1 : bool(merged.is_available),
+      emoji: text(merged.emoji, 'Picture', { max: 16, required: false }),
     };
   }
 
   function saveItem(id, body) {
     if (id == null) {
       const v = readItemBody(body);
-      const r = db.q(`INSERT INTO menu_items (category_id, name, price_paise, is_veg, prep_minutes, is_available)
-                      VALUES (?, ?, ?, ?, ?, ?)`)
-        .run(v.category_id, v.name, v.price_paise, v.is_veg, v.prep_minutes, v.is_available);
+      const r = db.q(`INSERT INTO menu_items (category_id, name, price_paise, is_veg, prep_minutes, is_available, emoji)
+                      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(v.category_id, v.name, v.price_paise, v.is_veg, v.prep_minutes, v.is_available, v.emoji);
       return { id: Number(r.lastInsertRowid) };
     }
     const existing = db.q('SELECT * FROM menu_items WHERE id = ? AND archived_at IS NULL').get(id);
     if (!existing) throw notFound('Item not found');
     const v = readItemBody(body, existing);
     // Only the menu row changes. Placed orders keep their own name/price snapshot.
-    db.q(`UPDATE menu_items SET category_id = ?, name = ?, price_paise = ?, is_veg = ?, prep_minutes = ?, is_available = ?
-          WHERE id = ?`).run(v.category_id, v.name, v.price_paise, v.is_veg, v.prep_minutes, v.is_available, id);
+    db.q(`UPDATE menu_items SET category_id = ?, name = ?, price_paise = ?, is_veg = ?, prep_minutes = ?, is_available = ?, emoji = ?
+          WHERE id = ?`).run(v.category_id, v.name, v.price_paise, v.is_veg, v.prep_minutes, v.is_available, v.emoji, id);
     return { id };
   }
 
@@ -354,6 +355,7 @@ function createStore(db, { now = () => Date.now() } = {}) {
       SELECT oi.item_id,
              COALESCE(m.name, MAX(oi.item_name))       AS name,
              m.is_veg                                  AS is_veg,
+             m.emoji                                   AS emoji,
              SUM(oi.qty)                               AS qty,
              SUM(oi.qty * oi.unit_price_at_order)      AS revenue_paise
       FROM order_items oi

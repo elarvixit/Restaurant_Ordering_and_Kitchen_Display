@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS menu_items (
   is_veg       INTEGER NOT NULL DEFAULT 1 CHECK (is_veg IN (0, 1)),
   prep_minutes INTEGER NOT NULL DEFAULT 10 CHECK (prep_minutes >= 0),
   is_available INTEGER NOT NULL DEFAULT 1 CHECK (is_available IN (0, 1)),
+  emoji        TEXT    NOT NULL DEFAULT '',  -- the dish's mini picture on the menu
   -- Items are archived, never deleted, so historical order_items keep a valid FK.
   archived_at  INTEGER
 );
@@ -79,36 +80,38 @@ CREATE INDEX IF NOT EXISTS idx_bills_closed     ON bills(closed_at);
 CREATE INDEX IF NOT EXISTS idx_items_category   ON menu_items(category_id);
 `;
 
+// [name, rupees, is_veg, prep minutes, picture]
 const SEED_MENU = [
   ['Starters', [
-    ['Paneer Tikka', 280, 1, 15],
-    ['Chicken 65', 320, 0, 15],
-    ['Veg Spring Rolls', 220, 1, 10],
-    ['Amritsari Fish', 380, 0, 15],
+    ['Paneer Tikka', 280, 1, 15, '🧀'],
+    ['Chicken 65', 320, 0, 15, '🌶️'],
+    ['Veg Spring Rolls', 220, 1, 10, '🌯'],
+    ['Amritsari Fish', 380, 0, 15, '🐟'],
   ]],
   ['Mains', [
-    ['Butter Chicken', 420, 0, 20],
-    ['Paneer Butter Masala', 340, 1, 18],
-    ['Dal Makhani', 280, 1, 15],
-    ['Mutton Rogan Josh', 480, 0, 25],
-    ['Veg Biryani', 300, 1, 20],
-    ['Chicken Biryani', 380, 0, 22],
+    ['Butter Chicken', 420, 0, 20, '🍗'],
+    ['Paneer Butter Masala', 340, 1, 18, '🍲'],
+    ['Dal Makhani', 280, 1, 15, '🥘'],
+    ['Mutton Rogan Josh', 480, 0, 25, '🍖'],
+    ['Veg Biryani', 300, 1, 20, '🍚'],
+    ['Chicken Biryani', 380, 0, 22, '🍛'],
   ]],
   ['Breads', [
-    ['Butter Naan', 60, 1, 5],
-    ['Garlic Naan', 80, 1, 5],
-    ['Tandoori Roti', 40, 1, 4],
+    ['Butter Naan', 60, 1, 5, '🫓'],
+    ['Garlic Naan', 80, 1, 5, '🧄'],
+    ['Tandoori Roti', 40, 1, 4, '🥙'],
   ]],
   ['Desserts', [
-    ['Gulab Jamun', 120, 1, 3],
-    ['Rasmalai', 150, 1, 3],
+    ['Gulab Jamun', 120, 1, 3, '🍡'],
+    ['Rasmalai', 150, 1, 3, '🍮'],
   ]],
   ['Beverages', [
-    ['Masala Chai', 60, 1, 4],
-    ['Sweet Lassi', 110, 1, 3],
-    ['Fresh Lime Soda', 90, 1, 3],
+    ['Masala Chai', 60, 1, 4, '☕'],
+    ['Sweet Lassi', 110, 1, 3, '🥛'],
+    ['Fresh Lime Soda', 90, 1, 3, '🍋'],
   ]],
 ];
+const SEED_EMOJI = new Map(SEED_MENU.flatMap(([, items]) => items.map((i) => [i[0], i[4]])));
 
 function open(file) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -139,8 +142,19 @@ function open(file) {
     }
   };
 
+  migrate(db);
   seed(db);
   return db;
+}
+
+// Upgrades a database created by an earlier version in place, keeping all data.
+function migrate(db) {
+  const cols = db.prepare('PRAGMA table_info(menu_items)').all().map((c) => c.name);
+  if (!cols.includes('emoji')) {
+    db.exec("ALTER TABLE menu_items ADD COLUMN emoji TEXT NOT NULL DEFAULT ''");
+    const set = db.prepare("UPDATE menu_items SET emoji = ? WHERE name = ? AND emoji = ''");
+    for (const [name, emoji] of SEED_EMOJI) set.run(emoji, name);
+  }
 }
 
 function seed(db) {
@@ -150,9 +164,9 @@ function seed(db) {
       const { lastInsertRowid: catId } = db
         .q('INSERT INTO menu_categories (name, sort_order) VALUES (?, ?)')
         .run(category, i + 1);
-      for (const [name, rupees, veg, prep] of items) {
-        db.q(`INSERT INTO menu_items (category_id, name, price_paise, is_veg, prep_minutes)
-              VALUES (?, ?, ?, ?, ?)`).run(catId, name, rupees * 100, veg, prep);
+      for (const [name, rupees, veg, prep, emoji] of items) {
+        db.q(`INSERT INTO menu_items (category_id, name, price_paise, is_veg, prep_minutes, emoji)
+              VALUES (?, ?, ?, ?, ?, ?)`).run(catId, name, rupees * 100, veg, prep, emoji);
       }
     });
     for (let n = 1; n <= 12; n++) {
