@@ -27,6 +27,21 @@ npm test               # business-rule tests (in-memory DB)
 Environment variables: `PORT`, `KITCHEN_PIN`, `MANAGER_PIN`, `DB_FILE` (default `data/restaurant.db`).
 The server prints its LAN address so tablets and phones on the same Wi-Fi can open the screens.
 
+## Automatic push to GitHub
+
+Every code change is committed and pushed to `origin/main` without anyone running git:
+
+| Trigger | What runs |
+|---|---|
+| Any file saved in the project (by anyone, in any editor) | `scripts/watch-and-push.ps1` waits until nothing has changed for 15 s, then runs `scripts/auto-push.ps1` |
+| End of each Claude Code turn | Stop hook in `.claude/settings.json` runs `scripts/auto-push.ps1` |
+| A manual `git commit` | `.git/hooks/post-commit` pushes it |
+
+The watcher starts at Windows login via the Startup-folder shortcut `Restaurant KDS auto-push.lnk`, runs hidden
+and logs to `.git/auto-push.log`. It ignores `.git/`, `data/` and `node_modules/`, and retries a failed push every
+5 minutes. To stop it, end the hidden `powershell` process running `watch-and-push.ps1` in Task Manager and delete
+the shortcut from `shell:startup`.
+
 ## Project layout
 
 ```
