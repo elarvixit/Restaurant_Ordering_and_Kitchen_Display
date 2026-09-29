@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node server.js",
     "demo": "node scripts/seed-demo.js",
-    "test": "node --test"
+    "test": "node --test",
+    "push": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/auto-push.ps1"
   }
 }
