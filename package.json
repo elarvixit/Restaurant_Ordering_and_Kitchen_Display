@@ -12,5 +12,11 @@
     "demo": "node scripts/seed-demo.js",
     "test": "node --test",
     "push": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/auto-push.ps1"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8"
   }
 }
