@@ -7,6 +7,7 @@
 
   let orders = [];
   let known = null;        // Map order id -> item count, to spot new or grown tickets
+  let lastStatus = new Map(); // order id -> status, to animate tickets that changed column
   const pending = new Set(); // ids with an advance request in flight (debounces taps)
   let soundOn = true;
   try { soundOn = localStorage.getItem('kds-sound') !== 'off'; } catch {}
@@ -42,12 +43,12 @@
   document.addEventListener('pointerdown', unlockAudio, { once: true });
 
   // ---------- render ----------
-  function ticket(o, fresh) {
+  function ticket(o, fresh, moved) {
     const mins = minutesSince(o.placed_at);
     const late = mins >= LATE_MINUTES;
     const count = o.items.reduce((s, l) => s + l.qty, 0);
     return `
-      <button class="ticket ${late ? 'late' : ''} ${fresh ? 'fresh' : ''}" data-id="${o.id}" data-status="${o.status}" data-placed="${o.placed_at}" type="button"
+      <button class="ticket ${late ? 'late' : ''} ${fresh ? 'fresh' : ''} ${moved ? 'moved' : ''}" data-id="${o.id}" data-status="${o.status}" data-placed="${o.placed_at}" type="button"
               aria-label="Table ${o.table_number}, order ${o.id}, ${o.status}, ${mins} minutes. ${ACTION[o.status]}">
         <div class="ticket-head">
           <span class="tbl">T${o.table_number}</span>
@@ -66,14 +67,14 @@
       </button>`;
   }
 
-  function render(freshIds = new Set()) {
+  function render(freshIds = new Set(), movedIds = new Set()) {
     for (const col of document.querySelectorAll('.kds-col')) {
       const s = col.dataset.status;
       // Server already sorts oldest first; keep that order within each column.
       const list = orders.filter((o) => o.status === s);
       col.querySelector('.count').textContent = list.length;
       col.querySelector('.kds-cards').innerHTML = list.length
-        ? list.map((o) => ticket(o, freshIds.has(o.id))).join('')
+        ? list.map((o) => ticket(o, freshIds.has(o.id), movedIds.has(o.id))).join('')
         : `<p class="kds-empty">${s === 'New' ? 'Waiting for orders…' : 'Nothing here'}</p>`;
     }
   }
@@ -97,9 +98,11 @@
         if (!known.has(o.id) || (o.status === 'New' && n > known.get(o.id))) fresh.add(o.id);
       }
     }
+    const moved = new Set(next.filter((o) => lastStatus.has(o.id) && lastStatus.get(o.id) !== o.status).map((o) => o.id));
     known = new Map(next.map((o) => [o.id, o.items.reduce((s, l) => s + l.qty, 0)]));
+    lastStatus = new Map(next.map((o) => [o.id, o.status]));
     orders = next;
-    render(fresh);
+    render(fresh, moved);
     if (fresh.size) chime();
   }
 

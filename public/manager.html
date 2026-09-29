@@ -89,6 +89,13 @@
             <label><input type="radio" name="is_veg" value="0"><span class="veg-mark nv"></span> Non-veg</label>
           </div>
         </div>
+        <div class="field full">Picture
+          <div class="pic-picker">
+            <span id="picPreview"></span>
+            <input type="text" name="emoji" maxlength="16" aria-label="Picture (any emoji)" style="width:80px;text-align:center;font-size:1.3rem">
+            <div class="pic-choices" id="picChoices" role="group" aria-label="Pick a picture"></div>
+          </div>
+        </div>
         <label class="switch full"><input type="checkbox" name="is_available" checked> Available to order</label>
       </div>
       <p class="pin-error" id="itemError" role="alert"></p>

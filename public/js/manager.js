@@ -15,38 +15,48 @@
     state.tab = b.dataset.tab;
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t === b));
     for (const id of ['dash', 'tables', 'menu']) $(`tab-${id}`).classList.toggle('hidden', id !== state.tab);
-    refresh(['orders', 'tables', 'menu']);
+    refresh(['orders', 'tables', 'menu'], true);
     try { sessionStorage.setItem('mgr-tab', state.tab); } catch {}
   });
 
   // ---------- dashboard ----------
   $('dashDate').value = state.date;
   $('dashDate').max = state.date;
-  $('dashDate').addEventListener('change', () => { state.date = $('dashDate').value || localDate(); loadDashboard(); });
-  $('todayBtn').addEventListener('click', () => { state.date = localDate(); $('dashDate').value = state.date; loadDashboard(); });
+  $('dashDate').addEventListener('change', () => { state.date = $('dashDate').value || localDate(); loadDashboard(true); });
+  $('todayBtn').addEventListener('click', () => { state.date = localDate(); $('dashDate').value = state.date; loadDashboard(true); });
 
-  async function loadDashboard() {
+  // animate: count-up numbers and growing bars. On for opening the tab or picking a date,
+  // off for live refreshes so the numbers don't restart from zero on every order.
+  async function loadDashboard(animate = false) {
     const d = await api(`/api/admin/dashboard?date=${encodeURIComponent(state.date)}`);
     const isToday = d.date === localDate();
     $('dashNote').textContent = isToday ? 'Updates live as orders come in' : `Showing ${new Date(d.date + 'T00:00').toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' })}`;
 
     $('kpis').innerHTML = `
-      <div class="kpi"><div class="label">Revenue</div><div class="value">${moneyShort(d.revenue_paise)}</div>
+      <div class="kpi"><div class="label">Revenue</div><div class="value" id="kpiRevenue">${moneyShort(d.revenue_paise)}</div>
         <div class="sub">net of GST · ${d.items_sold} items sold</div></div>
-      <div class="kpi"><div class="label">Orders</div><div class="value">${d.orders}</div>
+      <div class="kpi"><div class="label">Orders</div><div class="value" id="kpiOrders">${d.orders}</div>
         <div class="sub">${d.orders ? `avg ${moneyShort(d.avg_order_paise)} per order` : 'none yet'}</div></div>
       <div class="kpi"><div class="label">Avg prep time</div><div class="value">${d.avg_prep_ms == null ? '—' : duration(d.avg_prep_ms)}</div>
         <div class="sub">${d.prepped_orders ? `New → Ready, ${d.prepped_orders} orders · slowest ${duration(d.max_prep_ms)}` : 'no orders ready yet'}</div></div>
-      <div class="kpi"><div class="label">Collected</div><div class="value">${moneyShort(d.collected.total_paise)}</div>
+      <div class="kpi"><div class="label">Collected</div><div class="value" id="kpiCollected">${moneyShort(d.collected.total_paise)}</div>
         <div class="sub">${d.collected.bills} bill${d.collected.bills === 1 ? '' : 's'} closed · incl. ${money(d.collected.gst_paise)} GST</div></div>`;
 
-    renderChart(d.by_hour);
+    if (animate) {
+      App.countUp($('kpiRevenue'), d.revenue_paise, (v) => moneyShort(v));
+      App.countUp($('kpiOrders'), d.orders, (v) => String(Math.round(v)));
+      App.countUp($('kpiCollected'), d.collected.total_paise, (v) => moneyShort(v));
+    }
+    $('kpis').classList.toggle('enter', animate);
+
+    renderChart(d.by_hour, animate);
 
     const maxQty = Math.max(1, ...d.top_items.map((i) => i.qty));
+    $('topItems').classList.toggle('grow', animate);
     $('topItems').innerHTML = d.top_items.length ? d.top_items.map((i, n) => `
-      <li>
+      <li style="--i:${n}">
         <span class="rank">${n + 1}</span>
-        <span><span class="veg-mark ${i.is_veg ? '' : 'nv'}"></span> <strong>${esc(i.name)}</strong></span>
+        <span class="top-name">${App.dishPic(i, 'sm')}<span class="veg-mark ${i.is_veg ? '' : 'nv'}"></span> <strong>${esc(i.name)}</strong></span>
         <span class="num"><strong>${i.qty}</strong> <span class="muted">· ${moneyShort(i.revenue_paise)}</span></span>
         <span class="meter"><i style="width:${(i.qty / maxQty) * 100}%"></i></span>
       </li>`).join('') : '<p class="empty">No sales on this day.</p>';
@@ -58,7 +68,7 @@
   }
 
   // Single-series bar chart in plain SVG: one hue, recessive grid, hover tooltip, table fallback.
-  function renderChart(byHour) {
+  function renderChart(byHour, animate) {
     const withData = byHour.filter((h) => h.revenue_paise > 0).map((h) => h.hour);
     const lo = Math.min(10, ...withData), hi = Math.max(23, ...withData);
     const rows = byHour.filter((h) => h.hour >= lo && h.hour <= hi);
@@ -84,14 +94,14 @@
       const top = y(v), base = y(0), h = base - top;
       if (h > 0) {
         const rad = Math.min(4, h, barW / 2);
-        bars += `<path class="bar" data-i="${i}" d="M${x},${base} V${top + rad} Q${x},${top} ${x + rad},${top} H${x + barW - rad} Q${x + barW},${top} ${x + barW},${top + rad} V${base} Z"/>`;
+        bars += `<path class="bar" data-i="${i}" style="--i:${i}" d="M${x},${base} V${top + rad} Q${x},${top} ${x + rad},${top} H${x + barW - rad} Q${x + barW},${top} ${x + barW},${top + rad} V${base} Z"/>`;
       }
       if (i % (rows.length > 14 ? 2 : 1) === 0) bars += `<text class="axis-label" x="${x + barW / 2}" y="${H - 8}" text-anchor="middle">${hourLabel(r.hour)}</text>`;
       bars += `<rect class="hit" data-i="${i}" x="${L + i * band}" y="${T}" width="${band}" height="${H - T - B}"/>`;
     });
 
     $('chart').innerHTML = `
-      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Revenue by hour bar chart">${grid}${bars}</svg>
+      <svg viewBox="0 0 ${W} ${H}" class="${animate ? 'grow' : ''}" role="img" aria-label="Revenue by hour bar chart">${grid}${bars}</svg>
       <div class="chart-tip hidden"></div>`;
 
     const tip = $('chart').querySelector('.chart-tip');
@@ -203,7 +213,7 @@
             <button class="btn small" data-new-item="${c.id}" type="button">+ Item</button></header>
           ${list.map((i) => `
             <div class="item-row">
-              <span class="nm"><span class="veg-mark ${i.is_veg ? '' : 'nv'}"></span><span>${esc(i.name)}</span></span>
+              <span class="nm">${App.dishPic(i, 'sm')}<span class="veg-mark ${i.is_veg ? '' : 'nv'}"></span><span>${esc(i.name)}</span></span>
               <span class="num price-col">${money(i.price_paise)}</span>
               <span class="muted prep-col">${i.prep_minutes} min</span>
               <label class="switch"><input type="checkbox" data-avail="${i.id}" ${i.is_available ? 'checked' : ''}> ${i.is_available ? 'Available' : 'Unavailable'}</label>
@@ -251,6 +261,24 @@
     openItem(null, state.menu.categories[0].id);
   });
 
+  const PICS = ['🍛', '🍲', '🥘', '🍚', '🍗', '🍖', '🐟', '🦐', '🧀', '🌶️', '🥙', '🌯', '🫓', '🧄', '🥗', '🥟',
+    '🍜', '🍝', '🍕', '🍔', '🍟', '🍡', '🍮', '🍨', '🧁', '🍰', '☕', '🥛', '🍋', '🥤', '🧃', '🍽️'];
+
+  function renderPicPreview() {
+    const f = $('itemForm');
+    $('picPreview').innerHTML = App.dishPic({ emoji: f.emoji.value.trim(), category_id: Number(f.category_id.value) }, 'lg');
+    $('picChoices').querySelectorAll('.pic-choice').forEach((b) => b.classList.toggle('sel', b.dataset.pic === f.emoji.value.trim()));
+  }
+  $('picChoices').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pic]');
+    if (!b) return;
+    $('itemForm').emoji.value = b.dataset.pic;
+    renderPicPreview();
+    App.replay($('picPreview').firstElementChild, 'pop');
+  });
+  $('itemForm').emoji.addEventListener('input', renderPicPreview);
+  $('itemForm').category_id.addEventListener('change', renderPicPreview);
+
   let editing = null;
   function openItem(item, categoryId) {
     editing = item;
@@ -263,6 +291,9 @@
     f.prep_minutes.value = item?.prep_minutes ?? 10;
     f.querySelector(`[name=is_veg][value="${item ? item.is_veg : 1}"]`).checked = true;
     f.is_available.checked = item ? !!item.is_available : true;
+    f.emoji.value = item?.emoji || '🍽️';
+    $('picChoices').innerHTML = PICS.map((p) => `<button type="button" class="pic-choice" data-pic="${p}">${p}</button>`).join('');
+    renderPicPreview();
     $('itemError').textContent = '';
     $('archiveItemBtn').classList.toggle('hidden', !item);
     $('itemDialog').showModal();
@@ -279,6 +310,7 @@
       prep_minutes: Number(f.prep_minutes.value),
       is_veg: f.querySelector('[name=is_veg]:checked').value === '1',
       is_available: f.is_available.checked,
+      emoji: f.emoji.value.trim(),
     };
     try {
       await api(editing ? `/api/admin/items/${editing.id}` : '/api/admin/items', { method: editing ? 'PUT' : 'POST', body });
@@ -296,9 +328,9 @@
   });
 
   // ---------- live ----------
-  function refresh(topics) {
+  function refresh(topics, animate = false) {
     const jobs = [];
-    if (state.tab === 'dash' && (topics.includes('orders') || topics.includes('tables'))) jobs.push(loadDashboard());
+    if (state.tab === 'dash' && (topics.includes('orders') || topics.includes('tables'))) jobs.push(loadDashboard(animate));
     if (state.tab === 'tables' && (topics.includes('orders') || topics.includes('tables'))) jobs.push(loadTables());
     if (state.tab === 'menu' && topics.includes('menu')) jobs.push(loadMenu());
     return Promise.all(jobs).catch((err) => toast(err.message, 'error'));
@@ -312,7 +344,7 @@
     let saved = null;
     try { saved = sessionStorage.getItem('mgr-tab'); } catch {}
     if (saved && saved !== 'dash') document.querySelector(`.tab[data-tab="${saved}"]`)?.click();
-    else refresh(['orders']);
-    App.live(refresh, App.syncBadge($('sync')));
+    else refresh(['orders'], true);
+    App.live((topics) => refresh(topics), App.syncBadge($('sync')));
   })();
 })();
