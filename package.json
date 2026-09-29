@@ -14,9 +14,11 @@
     "push": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/auto-push.ps1"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.1.0"
+    "@neondatabase/serverless": "^1.1.0",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.8"
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "^0.2.11"
   }
 }
