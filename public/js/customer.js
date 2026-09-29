@@ -16,7 +16,7 @@
     cart: [],          // [{ item_id, qty, note }] — local until "Place order"
     bill: null,
     blocked: new Set(), // item ids the server rejected on the last attempt
-    vegOnly: false,
+    diet: ['veg', 'nonveg'].includes(store.get('diet')) ? store.get('diet') : 'all', // menu filter
     placing: false,
   };
 
@@ -93,12 +93,25 @@
     const inCart = new Map();
     for (const l of state.cart) inCart.set(l.item_id, (inCart.get(l.item_id) || 0) + l.qty);
 
-    $('catTabs').innerHTML = cats.map((c, i) =>
-      `<button class="cat-tab ${i === 0 ? 'active' : ''}" data-cat="${c.id}" type="button">${esc(c.name)}</button>`).join('') +
-      `<label class="veg-toggle switch"><input type="checkbox" id="vegOnly" ${state.vegOnly ? 'checked' : ''}> Veg only</label>`;
+    const matchesDiet = (i) => state.diet === 'all' || (state.diet === 'veg' ? i.is_veg : !i.is_veg);
+    const visibleCats = cats.filter((c) => state.menu.items.some((i) => i.category_id === c.id && matchesDiet(i)));
+    const count = (d) => state.menu.items.filter((i) => d === 'all' || (d === 'veg' ? i.is_veg : !i.is_veg)).length;
+
+    $('dietFilter').innerHTML = [
+      ['all', 'All', ''],
+      ['veg', 'Veg', '<span class="veg-mark"></span>'],
+      ['nonveg', 'Non-veg', '<span class="veg-mark nv"></span>'],
+    ].map(([d, label, mark]) => `
+      <button class="diet-btn" data-diet="${d}" type="button" aria-pressed="${state.diet === d}">
+        ${mark}${label} <span class="diet-count">${count(d)}</span>
+      </button>`).join('');
+
+    // Tabs only for categories that still have dishes under the current filter.
+    $('catTabs').innerHTML = visibleCats.map((c, i) =>
+      `<button class="cat-tab ${i === 0 ? 'active' : ''}" data-cat="${c.id}" type="button">${esc(c.name)}</button>`).join('');
 
     $('menu').innerHTML = cats.map((c) => {
-      const items = state.menu.items.filter((i) => i.category_id === c.id && (!state.vegOnly || i.is_veg));
+      const items = state.menu.items.filter((i) => i.category_id === c.id && matchesDiet(i));
       if (!items.length) return '';
       return `
         <section class="menu-section" id="cat-${c.id}" data-cat="${c.id}">
@@ -123,8 +136,13 @@
     if (!b) return;
     document.getElementById(`cat-${b.dataset.cat}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
-  $('catTabs').addEventListener('change', (e) => {
-    if (e.target.id === 'vegOnly') { state.vegOnly = e.target.checked; renderMenu(); }
+  $('dietFilter').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-diet]');
+    if (!b || b.dataset.diet === state.diet) return;
+    state.diet = b.dataset.diet;
+    store.set('diet', state.diet);
+    renderMenu();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
   // Highlight the category tab for the section in view.
@@ -133,7 +151,7 @@
       if (!en.isIntersecting) continue;
       document.querySelectorAll('.cat-tab').forEach((t) => t.classList.toggle('active', t.dataset.cat === en.target.dataset.cat));
     }
-  }, { rootMargin: '-130px 0px -60% 0px' });
+  }, { rootMargin: '-180px 0px -55% 0px' });
   new MutationObserver(() => document.querySelectorAll('.menu-section').forEach((s) => spy.observe(s)))
     .observe($('menu'), { childList: true });
 

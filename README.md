@@ -18,6 +18,12 @@ npm run demo           # optional: fill today with ~25 finished orders for the d
 npm test               # business-rule tests (in-memory DB)
 ```
 
+**Screen options:**
+* **Veg / Non-veg filter** on the customer menu (All · Veg · Non-veg, with item counts). Category tabs show only
+  the categories that have matching dishes, and the device remembers the choice.
+* **Light / dark theme** button on every screen, including the PIN screens. Each screen remembers its own choice.
+  The kitchen starts dark, and the others follow the device's system setting until you pick one.
+
 Environment variables: `PORT`, `KITCHEN_PIN`, `MANAGER_PIN`, `DB_FILE` (default `data/restaurant.db`).
 The server prints its LAN address so tablets and phones on the same Wi-Fi can open the screens.
 

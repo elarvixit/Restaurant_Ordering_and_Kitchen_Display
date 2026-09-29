@@ -104,7 +104,10 @@ const App = (() => {
       overlay.className = 'pin-overlay';
       overlay.innerHTML = `
         <form class="pin-card" autocomplete="off">
-          <a class="pin-back" href="/">← All screens</a>
+          <div class="pin-top">
+            <a class="pin-back" href="/">← All screens</a>
+            <button class="btn small ghost theme-btn" type="button" data-theme-toggle></button>
+          </div>
           <h1>${esc(title)}</h1>
           <p class="muted">Enter the ${esc(role)} PIN</p>
           <input class="pin-input" type="password" inputmode="numeric" maxlength="8" aria-label="PIN" autofocus>
@@ -117,6 +120,7 @@ const App = (() => {
           </div>
         </form>`;
       document.body.append(overlay);
+      overlay.querySelectorAll('[data-theme-toggle]').forEach((b) => window.Theme?.bind(b));
       const form = overlay.querySelector('form');
       const input = overlay.querySelector('input');
       const error = overlay.querySelector('.pin-error');
