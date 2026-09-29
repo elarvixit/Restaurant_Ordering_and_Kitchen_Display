@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kitchen · Tandoor House</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E👨‍🍳%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="kds">
+  <header class="topbar">
+    <a class="brand" href="/"><span class="brand-mark">👨‍🍳</span><span>Kitchen</span></a>
+    <span id="clock" class="num muted" style="font-weight:700"></span>
+    <span class="spacer"></span>
+    <span class="legend-late"><i></i> over 20 min</span>
+    <button id="soundBtn" class="btn small" type="button" aria-pressed="true">🔔 Sound on</button>
+    <span id="sync" class="sync">Connecting…</span>
+    <button id="lockBtn" class="btn small ghost" type="button">Lock</button>
+  </header>
+
+  <main class="kds-board" id="board">
+    <section class="kds-col" data-status="New"><header><h2>New</h2><span class="count num">0</span></header><div class="kds-cards"></div></section>
+    <section class="kds-col" data-status="Preparing"><header><h2>Preparing</h2><span class="count num">0</span></header><div class="kds-cards"></div></section>
+    <section class="kds-col" data-status="Ready"><header><h2>Ready</h2><span class="count num">0</span></header><div class="kds-cards"></div></section>
+  </main>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/kitchen.js"></script>
+</body>
+</html>

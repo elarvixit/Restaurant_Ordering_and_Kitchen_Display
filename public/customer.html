@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Order · Tandoor House</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🍛%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="brand-mark">🍛</span><span>Tandoor House</span></a>
+    <span class="spacer"></span>
+    <button id="tableBtn" class="btn small hidden" type="button"></button>
+    <span id="sync" class="sync">Connecting…</span>
+  </header>
+
+  <section id="picker" class="table-picker hidden">
+    <h1>Welcome! Which table are you at?</h1>
+    <p class="muted">You'll find the number on the stand at your table.</p>
+    <div id="tableGrid" class="table-grid"></div>
+  </section>
+
+  <div id="ordering" class="order-layout hidden">
+    <main>
+      <nav id="catTabs" class="cat-tabs" aria-label="Menu categories"></nav>
+      <div id="menu"></div>
+    </main>
+
+    <aside id="side" class="side" aria-label="Cart and orders">
+      <section class="panel">
+        <div class="panel-head"><h2>Your cart</h2><button id="closeSide" class="btn ghost small cart-close" type="button" aria-label="Close">✕</button></div>
+        <div id="cart"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Your orders</h2></div>
+        <div id="orders"></div>
+      </section>
+    </aside>
+  </div>
+
+  <button id="cartFab" class="btn primary cart-fab hidden" type="button"></button>
+
+  <dialog id="addDialog">
+    <form method="dialog" class="dialog-body" id="addForm">
+      <div>
+        <h2 id="addName"></h2>
+        <p class="muted" id="addMeta" style="margin:4px 0 0"></p>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span class="field" style="font-weight:600">Quantity</span>
+        <span class="stepper"><button type="button" data-d="-1" aria-label="Less">−</button><span id="addQty">1</span><button type="button" data-d="1" aria-label="More">+</button></span>
+      </div>
+      <label class="field">Note for the kitchen (optional)
+        <input id="addNote" type="text" maxlength="140" placeholder="e.g. less spicy, no onion">
+      </label>
+      <div class="dialog-actions">
+        <button class="btn" value="cancel" type="submit" formnovalidate>Cancel</button>
+        <button class="btn primary" id="addConfirm" value="add" type="submit"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/customer.js"></script>
+</body>
+</html>

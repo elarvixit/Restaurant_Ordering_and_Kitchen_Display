@@ -1,0 +1,15 @@
+{
+  "name": "restaurant-ordering-kds",
+  "version": "1.0.0",
+  "description": "Customer ordering, kitchen display and manager dashboard on one SQLite database",
+  "main": "server.js",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "demo": "node scripts/seed-demo.js",
+    "test": "node --test"
+  }
+}

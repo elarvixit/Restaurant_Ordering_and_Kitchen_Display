@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manager · Tandoor House</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E📊%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="brand-mark">📊</span><span>Manager</span></a>
+    <span class="spacer"></span>
+    <span id="sync" class="sync">Connecting…</span>
+    <button id="lockBtn" class="btn small ghost" type="button">Lock</button>
+  </header>
+
+  <div class="mgr">
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="dash" role="tab" type="button">Dashboard</button>
+      <button class="tab" data-tab="tables" role="tab" type="button">Tables &amp; bills</button>
+      <button class="tab" data-tab="menu" role="tab" type="button">Menu</button>
+    </nav>
+
+    <!-- Dashboard -->
+    <section id="tab-dash">
+      <div class="toolbar">
+        <input type="date" id="dashDate" aria-label="Day">
+        <button class="btn small" id="todayBtn" type="button">Today</button>
+        <span class="muted" id="dashNote" style="font-size:.85rem"></span>
+      </div>
+      <div class="kpis" id="kpis"></div>
+      <div class="dash-grid">
+        <section class="panel">
+          <div class="panel-head"><h2>Revenue by hour</h2><span class="muted" style="font-size:.82rem">net of GST, by time placed</span></div>
+          <div class="chart-wrap" id="chart"></div>
+          <details class="table-view"><summary>Show as table</summary><div id="hourTable"></div></details>
+        </section>
+        <section class="panel">
+          <div class="panel-head"><h2>Best sellers</h2><span class="muted" style="font-size:.82rem">by quantity</span></div>
+          <ol class="top-list" id="topItems"></ol>
+          <div class="live-strip" id="liveStrip"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- Tables & bills -->
+    <section id="tab-tables" class="hidden">
+      <div class="bill-layout">
+        <div>
+          <div class="toolbar">
+            <h2 style="flex:1">Tables</h2>
+            <form id="addTableForm" style="display:flex;gap:8px">
+              <input type="number" id="newTableNo" min="1" max="999" placeholder="No." style="width:90px" aria-label="New table number" required>
+              <button class="btn small" type="submit">Add table</button>
+            </form>
+          </div>
+          <div class="tables-grid" id="tablesGrid"></div>
+        </div>
+        <section class="panel bill-paper" id="billPanel"><p class="empty">Select a table to see its bill.</p></section>
+      </div>
+    </section>
+
+    <!-- Menu -->
+    <section id="tab-menu" class="hidden">
+      <div class="toolbar">
+        <h2 style="flex:1">Menu</h2>
+        <button class="btn small" id="addCatBtn" type="button">+ Category</button>
+        <button class="btn small primary" id="addItemBtn" type="button">+ Item</button>
+      </div>
+      <p class="muted" style="margin-top:-6px;font-size:.88rem">Changes show up on customer screens instantly. Orders already placed keep the name and price they were ordered at.</p>
+      <div class="menu-admin" id="menuAdmin"></div>
+    </section>
+  </div>
+
+  <dialog id="itemDialog">
+    <form method="dialog" class="dialog-body" id="itemForm">
+      <h2 id="itemDialogTitle">Item</h2>
+      <div class="form-grid">
+        <label class="field full">Name <input type="text" name="name" maxlength="60" required></label>
+        <label class="field full">Category <select name="category_id" required></select></label>
+        <label class="field">Price (₹) <input type="number" name="price" min="0" step="0.01" required></label>
+        <label class="field">Prep time (min) <input type="number" name="prep_minutes" min="0" max="240" step="1" required></label>
+        <div class="field full">Type
+          <div class="seg">
+            <label><input type="radio" name="is_veg" value="1" checked><span class="veg-mark"></span> Veg</label>
+            <label><input type="radio" name="is_veg" value="0"><span class="veg-mark nv"></span> Non-veg</label>
+          </div>
+        </div>
+        <label class="switch full"><input type="checkbox" name="is_available" checked> Available to order</label>
+      </div>
+      <p class="pin-error" id="itemError" role="alert"></p>
+      <div class="dialog-actions">
+        <button class="btn danger" id="archiveItemBtn" type="button" style="margin-right:auto">Remove</button>
+        <button class="btn" value="cancel" formnovalidate type="submit">Cancel</button>
+        <button class="btn primary" value="save" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/manager.js"></script>
+</body>
+</html>
