@@ -84,11 +84,13 @@
     const t = table();
     $('tableBtn').textContent = `Table ${t ? t.number : '?'} · change`;
     $('tableBtn').classList.remove('hidden');
-    renderMenu();
+    renderMenu(true);
     renderSide();
   }
 
-  function renderMenu() {
+  // animate: cards slide in one after another. Used when the menu first opens or the filter
+  // changes, not on live refreshes (those would make the whole menu jump on every order).
+  function renderMenu(animate = false) {
     const cats = state.menu.categories;
     const inCart = new Map();
     for (const l of state.cart) inCart.set(l.item_id, (inCart.get(l.item_id) || 0) + l.qty);
@@ -110,6 +112,7 @@
     $('catTabs').innerHTML = visibleCats.map((c, i) =>
       `<button class="cat-tab ${i === 0 ? 'active' : ''}" data-cat="${c.id}" type="button">${esc(c.name)}</button>`).join('');
 
+    let n = 0;
     $('menu').innerHTML = cats.map((c) => {
       const items = state.menu.items.filter((i) => i.category_id === c.id && matchesDiet(i));
       if (!items.length) return '';
@@ -118,7 +121,8 @@
           <h2>${esc(c.name)}</h2>
           <div class="menu-grid">
             ${items.map((i) => `
-              <article class="menu-card ${i.is_available ? '' : 'off'}">
+              <article class="menu-card ${i.is_available ? '' : 'off'} ${animate ? 'enter' : ''}" data-item="${i.id}" style="--i:${Math.min(n++, 12)}">
+                ${App.dishPic(i)}
                 <div class="name"><span class="veg-mark ${i.is_veg ? '' : 'nv'}" title="${i.is_veg ? 'Veg' : 'Non-veg'}"></span>${esc(i.name)}</div>
                 <div class="meta"><span class="price">${money(i.price_paise)}</span> · ~${i.prep_minutes} min
                   ${inCart.get(i.id) ? `<span class="in-cart"> · ${inCart.get(i.id)} in cart</span>` : ''}</div>
@@ -141,7 +145,7 @@
     if (!b || b.dataset.diet === state.diet) return;
     state.diet = b.dataset.diet;
     store.set('diet', state.diet);
-    renderMenu();
+    renderMenu(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
@@ -163,7 +167,8 @@
     if (!b) return;
     const item = state.itemsById.get(Number(b.dataset.add));
     if (!item || !item.is_available) return;
-    adding = { item, qty: 1 };
+    adding = { item, qty: 1, from: b.closest('.menu-card')?.querySelector('.dish-pic') };
+    $('addPic').innerHTML = App.dishPic(item, 'lg');
     $('addName').textContent = item.name;
     $('addMeta').textContent = `${money(item.price_paise)} · ${item.is_veg ? 'Veg' : 'Non-veg'} · ~${item.prep_minutes} min`;
     $('addNote').value = '';
@@ -192,10 +197,34 @@
     state.blocked.delete(adding.item.id);
     saveCart();
     toast(`Added ${adding.qty} × ${adding.item.name}`);
+    flyToCart(adding.from, adding.item);
     adding = null;
     renderMenu();
     renderSide();
   });
+
+  // The dish picture arcs from its card into the cart, then the cart gives a little bump.
+  function flyToCart(fromEl, item) {
+    const fab = $('cartFab');
+    const target = getComputedStyle(fab).display !== 'none' ? fab : $('cart').closest('.panel');
+    if (!fromEl || !fromEl.isConnected || App.reducedMotion() || !target.animate) return App.replay(target, 'bump');
+    const a = fromEl.getBoundingClientRect(), b = target.getBoundingClientRect();
+    const ghost = document.createElement('div');
+    ghost.className = 'fly-pic';
+    ghost.innerHTML = App.dishPic(item);
+    Object.assign(ghost.style, { left: `${a.left}px`, top: `${a.top}px` });
+    document.body.append(ghost);
+    const dx = b.left + Math.min(b.width, 120) / 2 - (a.left + a.width / 2);
+    const dy = b.top + 28 - (a.top + a.height / 2);
+    ghost.animate([
+      { transform: 'translate(0, 0) scale(1) rotate(0)', opacity: 1 },
+      { transform: `translate(${dx * 0.55}px, ${dy * 0.55 - 90}px) scale(.85) rotate(-12deg)`, opacity: 1, offset: 0.55 },
+      { transform: `translate(${dx}px, ${dy}px) scale(.3) rotate(10deg)`, opacity: 0.1 },
+    ], { duration: 700, easing: 'cubic-bezier(.45, 0, .25, 1)' }).onfinish = () => {
+      ghost.remove();
+      App.replay(target, 'bump');
+    };
+  }
 
   // ---------- cart & orders ----------
 
@@ -220,7 +249,7 @@
         const m = state.itemsById.get(l.item_id);
         return `
           <div class="line ${problems[idx] ? 'bad' : ''}">
-            <div><strong>${esc(m?.name || 'Unknown item')}</strong><div class="muted num" style="font-size:.85rem">${m ? money(m.price_paise) : ''}</div></div>
+            <div class="line-item">${App.dishPic(m, 'sm')}<div><strong>${esc(m?.name || 'Unknown item')}</strong><div class="muted num" style="font-size:.85rem">${m ? money(m.price_paise) : ''}</div></div></div>
             <span class="stepper"><button type="button" data-cart="${idx}" data-d="-1" aria-label="Less">−</button><span>${l.qty}</span><button type="button" data-cart="${idx}" data-d="1" aria-label="More" ${problems[idx] ? 'disabled' : ''}>+</button></span>
             ${l.note ? `<div class="note">“${esc(l.note)}”</div>` : ''}
             ${problems[idx] ? `<div class="warn">${problems[idx]}</div>` : ''}
@@ -237,10 +266,10 @@
     $('orders').innerHTML = b && b.orders.length ? `
       ${b.orders.map((o) => `
         <div class="order-block">
-          <header><strong>Order #${o.id}</strong><span class="muted">${clock(o.placed_at)}</span><span class="pill ${o.status}">${o.status}</span></header>
+          <header><strong>Order #${o.id}</strong><span class="muted">${clock(o.placed_at)}</span><span class="pill ${o.status}" data-order="${o.id}">${o.status}</span></header>
           ${o.items.map((l) => `
             <div class="line">
-              <div>${esc(l.item_name)}<div class="muted num" style="font-size:.82rem">${money(l.unit_price_at_order)} each</div></div>
+              <div class="line-item">${App.dishPic(state.itemsById.get(l.item_id), 'sm')}<div>${esc(l.item_name)}<div class="muted num" style="font-size:.82rem">${money(l.unit_price_at_order)} each</div></div></div>
               ${o.editable
                 ? `<span class="stepper"><button type="button" data-line="${l.id}" data-q="${l.qty - 1}" aria-label="Less">−</button><span>${l.qty}</span><button type="button" data-line="${l.id}" data-q="${l.qty + 1}" aria-label="More">+</button></span>`
                 : `<span class="num"><strong>× ${l.qty}</strong></span>`}
@@ -257,7 +286,15 @@
       : '<p class="empty">No orders yet for this table.</p>';
 
     $('cartFab').innerHTML = `<span>🛒 Cart ${cartCount ? `(${cartCount})` : ''}</span><span class="num">${cartCount ? money(cartTotal) : b?.orders.length ? `Bill ${money(b.total_paise)}` : ''}</span>`;
+
+    // Pop the status pill of any order the kitchen just moved forward.
+    for (const o of b?.orders || []) {
+      const was = lastStatus.get(o.id);
+      if (was && was !== o.status) App.replay(document.querySelector(`.pill[data-order="${o.id}"]`), 'pop');
+      lastStatus.set(o.id, o.status);
+    }
   }
+  const lastStatus = new Map();
 
   $('cart').addEventListener('click', async (e) => {
     const step = e.target.closest('[data-cart]');
