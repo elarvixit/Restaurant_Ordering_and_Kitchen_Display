@@ -101,6 +101,33 @@ test('dashboard: revenue, prep time New→Ready, top items, hourly buckets', () 
   assert.equal(store.dashboard('2026-09-28').orders, 0);
 });
 
+test('every seeded dish has a picture, and the manager can change it', () => {
+  const { store, item } = setup();
+  assert.ok(store.getMenu().items.every((i) => i.emoji), 'all dishes have a picture');
+  const chai = item('Masala Chai');
+  store.saveItem(chai.id, { emoji: '🍵' });
+  assert.equal(store.getMenu().items.find((i) => i.id === chai.id).emoji, '🍵');
+  assert.throws(() => store.saveItem(chai.id, { emoji: 'x'.repeat(40) }), { status: 400 });
+});
+
+test('a database from before pictures existed is upgraded in place', () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kds-')), 'old.db');
+  const db1 = open(file);
+  db1.exec("UPDATE menu_items SET emoji = ''");
+  // Recreate the old table shape (no emoji column) with the same rows.
+  db1.exec(`PRAGMA foreign_keys = OFF;
+    CREATE TABLE old_items AS SELECT id, category_id, name, price_paise, is_veg, prep_minutes, is_available, archived_at FROM menu_items;
+    DROP TABLE menu_items; ALTER TABLE old_items RENAME TO menu_items;`);
+  db1.close();
+
+  const db2 = open(file);
+  const rows = db2.prepare('SELECT name, emoji FROM menu_items').all();
+  assert.equal(rows.length, 18, 'no rows lost');
+  assert.equal(rows.find((r) => r.name === 'Masala Chai').emoji, '☕');
+  db2.close();
+});
+
 test('customer can edit and remove lines on a New order', () => {
   const { store, item } = setup();
   const { order_id } = store.placeOrder(5, { items: [{ item_id: item('Rasmalai').id, qty: 1 }] });

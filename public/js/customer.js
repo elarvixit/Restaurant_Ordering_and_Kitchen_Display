@@ -42,13 +42,14 @@
 
   // ---------- table picker ----------
 
-  function showPicker() {
+  function showPicker(animate = false) {
     $('ordering').classList.add('hidden');
     $('cartFab').classList.add('hidden');
     $('tableBtn').classList.add('hidden');
     $('picker').classList.remove('hidden');
-    $('tableGrid').innerHTML = state.tables.map((t) => `
-      <button class="table-btn ${t.open_orders ? 'busy' : ''}" data-id="${t.id}" type="button">
+    $('tableGrid').classList.toggle('enter', animate);
+    $('tableGrid').innerHTML = state.tables.map((t, i) => `
+      <button class="table-btn ${t.open_orders ? 'busy' : ''}" data-id="${t.id}" type="button" style="--n:${i}">
         <small class="muted">Table</small><strong>${t.number}</strong>
         <small class="muted">${t.open_orders ? 'Ordering now' : `${t.seats} seats`}</small>
       </button>`).join('');
@@ -72,7 +73,7 @@
     if (state.cart.length && !confirm('Switch table? Your cart for this table is kept.')) return;
     state.tableId = null;
     store.set('table-id', null);
-    showPicker();
+    showPicker(true);
   });
 
   // ---------- menu ----------
@@ -367,7 +368,7 @@
     try {
       await Promise.all([loadTables(), loadMenu()]);
       if (state.tableId && table()) await chooseTable(state.tableId);
-      else showPicker();
+      else showPicker(true);
     } catch (err) {
       toast('Could not reach the restaurant server. Retrying…', 'error');
       setTimeout(() => location.reload(), 4000);
