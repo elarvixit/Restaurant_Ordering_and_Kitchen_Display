@@ -43,42 +43,50 @@ const App = (() => {
     return data;
   }
 
-  // Live sync: Server-Sent Events push a "changed" signal the moment any screen
-  // writes. If the stream drops, poll /api/version every 3 s until it comes back.
-  function live(onChange, onStatus = () => {}) {
+  // Live sync. Every write bumps a version number in the database.
+  // - Local server (push: true): Server-Sent Events announce each new version instantly;
+  //   if the stream drops, poll /api/version every 3 s until it comes back.
+  // - Vercel (push: false): serverless functions can't hold a push connection per screen,
+  //   so poll /api/version every 2 s. Well inside the 5-second requirement.
+  // Either way the screen only refetches when the version actually moved.
+  const ALL = ['orders', 'menu', 'tables'];
+  async function live(onChange, onStatus = () => {}) {
     let version = null, pollTimer = null, es = null;
 
     const seen = (v, topics) => {
       if (version !== null && v === version) return;
       const first = version === null;
       version = v;
-      if (!first) onChange(topics || ['orders', 'menu', 'tables']);
+      if (!first) onChange(topics || ALL);
     };
-    const startPolling = () => {
+    const startPolling = (ms, state) => {
       if (pollTimer) return;
-      onStatus('polling');
+      onStatus(state);
       pollTimer = setInterval(async () => {
-        try { const r = await api('/api/version'); seen(r.version); } catch {}
-      }, 3000);
+        try { const r = await api('/api/version'); seen(r.version); onStatus(state); } catch { onStatus('offline'); }
+      }, ms);
     };
     const stopPolling = () => { clearInterval(pollTimer); pollTimer = null; };
 
-    if ('EventSource' in window) {
+    // A tab that was asleep (phone screen off) catches up on wake.
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) onChange(ALL); });
+
+    let push = true;
+    try { const r = await api('/api/version'); version = r.version; push = r.push !== false; } catch {}
+    if (!push || !('EventSource' in window)) return startPolling(2000, 'live-poll');
+
+    {
       es = new EventSource('/api/events');
       es.addEventListener('hello', (e) => {
         stopPolling();
         onStatus('live');
         const v = JSON.parse(e.data).version;
         // Reconnected after a gap: we may have missed writes, so refresh everything.
-        if (version !== null && v !== version) { version = v; onChange(['orders', 'menu', 'tables']); } else version = v;
+        if (version !== null && v !== version) { version = v; onChange(ALL); } else version = v;
       });
       es.addEventListener('change', (e) => { const d = JSON.parse(e.data); seen(d.version, d.topics); });
-      es.onerror = () => startPolling();
-    } else {
-      startPolling();
+      es.onerror = () => startPolling(3000, 'polling');
     }
-    // A tab that was asleep (phone screen off) catches up on wake.
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) onChange(['orders', 'menu', 'tables']); });
   }
 
   function toast(message, kind = 'info') {
@@ -177,9 +185,16 @@ const App = (() => {
 
   function syncBadge(el) {
     return (state) => {
-      el.dataset.state = state;
-      el.textContent = state === 'live' ? 'Live' : 'Reconnecting… (polling)';
-      el.title = state === 'live' ? 'Receiving live updates from the server' : 'Live stream lost, checking every 3 seconds';
+      const labels = {
+        live: ['Live', 'live', 'Receiving instant updates from the server'],
+        'live-poll': ['Live', 'live', 'Checking for new orders every 2 seconds'],
+        polling: ['Reconnecting…', 'polling', 'Live stream lost, checking every 3 seconds'],
+        offline: ['Offline', 'polling', 'Cannot reach the server, retrying'],
+      };
+      const [text, look, title] = labels[state] || labels.polling;
+      el.dataset.state = look;
+      el.textContent = text;
+      el.title = title;
     };
   }
 

@@ -1,141 +1,210 @@
 'use strict';
-// Business-rule tests against an in-memory database. Run: npm test
+// Business-rule tests. The whole suite runs twice: on SQLite (local mode) and on
+// Postgres via PGlite (the SQL that runs on Vercel/Neon). Run: npm test
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { open } = require('../src/db');
+const { sqliteDb, pgliteDb } = require('../src/sql');
+const { setup: setupSchema } = require('../src/schema');
 const { createStore } = require('../src/store');
-
-function setup() {
-  let clock = new Date(2026, 8, 29, 12, 0, 0).getTime(); // 29 Sep 2026, 12:00 local
-  const db = open(':memory:');
-  const store = createStore(db, { now: () => clock });
-  const item = (name) => db.q('SELECT * FROM menu_items WHERE name = ?').get(name);
-  return { db, store, item, advance: (ms) => { clock += ms; }, now: () => clock };
-}
 
 const MIN = 60_000;
 
-test('new items join the open New order, but a Preparing order is locked', () => {
-  const { store, item } = setup();
-  const naan = item('Butter Naan'), dal = item('Dal Makhani');
+const ENGINES = [
+  ['sqlite', async () => sqliteDb(':memory:')],
+  ['postgres', () => pgliteDb()],
+];
 
-  const a = store.placeOrder(1, { items: [{ item_id: dal.id, qty: 1, note: 'less spicy' }] });
-  const b = store.placeOrder(1, { items: [{ item_id: naan.id, qty: 2 }] });
-  assert.equal(b.order_id, a.order_id);
-  assert.equal(b.appended, true);
+for (const [engine, makeDb] of ENGINES) {
+  async function setup() {
+    let clock = Date.UTC(2026, 8, 29, 12, 0, 0); // 29 Sep 2026, 12:00 in the store's zone (UTC here)
+    const db = await makeDb();
+    await setupSchema(db);
+    const store = createStore(db, { now: () => clock, tz: 'UTC' });
+    const item = async (name) => (await db.query('SELECT * FROM menu_items WHERE name = $1', [name]))[0];
+    return { db, store, item, advance: (ms) => { clock += ms; } };
+  }
 
-  store.advanceOrder(a.order_id, { from: 'New' });
-  const line = store.getTableBill(1).orders[0].items[0];
-  assert.throws(() => store.updateOrderLine(1, line.id, { qty: 3 }), { status: 409 });
+  test(`[${engine}] new items join the open New order, but a Preparing order is locked`, async () => {
+    const { db, store, item } = await setup();
+    const naan = await item('Butter Naan'), dal = await item('Dal Makhani');
 
-  const c = store.placeOrder(1, { items: [{ item_id: naan.id, qty: 1 }] });
-  assert.notEqual(c.order_id, a.order_id, 'a fresh order is created once the first is Preparing');
-  assert.equal(store.getTableBill(1).orders.length, 2);
-});
+    const a = await store.placeOrder(1, { items: [{ item_id: dal.id, qty: 1, note: 'less spicy' }] });
+    const b = await store.placeOrder(1, { items: [{ item_id: naan.id, qty: 2 }] });
+    assert.equal(b.order_id, a.order_id);
+    assert.equal(b.appended, true);
 
-test('unavailable items cannot be ordered, and existing orders survive the toggle', () => {
-  const { store, item } = setup();
-  const pt = item('Paneer Tikka');
-  const { order_id } = store.placeOrder(2, { items: [{ item_id: pt.id, qty: 2 }] });
+    await store.advanceOrder(a.order_id, { from: 'New' });
+    const line = (await store.getTableBill(1)).orders[0].items[0];
+    await assert.rejects(store.updateOrderLine(1, line.id, { qty: 3 }), { status: 409 });
 
-  store.saveItem(pt.id, { is_available: false, price_paise: 99_900 }); // also a price change
-  assert.throws(() => store.placeOrder(3, { items: [{ item_id: pt.id, qty: 1 }] }), { status: 409 });
+    const c = await store.placeOrder(1, { items: [{ item_id: naan.id, qty: 1 }] });
+    assert.notEqual(c.order_id, a.order_id, 'a fresh order is created once the first is Preparing');
+    assert.equal((await store.getTableBill(1)).orders.length, 2);
+    await db.close();
+  });
 
-  const k = store.kitchenOrders().find((o) => o.id === order_id);
-  assert.equal(k.items[0].item_name, 'Paneer Tikka');
-  assert.equal(k.items[0].unit_price_at_order, 28_000, 'price is the snapshot, not the new menu price');
-  store.advanceOrder(order_id, { from: 'New' });
-  store.advanceOrder(order_id, { from: 'Preparing' });
-  store.advanceOrder(order_id, { from: 'Ready' });
-  assert.equal(store.closeTable(2).subtotal_paise, 56_000);
-});
+  test(`[${engine}] unavailable items cannot be ordered, and existing orders survive the toggle`, async () => {
+    const { db, store, item } = await setup();
+    const pt = await item('Paneer Tikka');
+    const { order_id } = await store.placeOrder(2, { items: [{ item_id: pt.id, qty: 2 }] });
 
-test('lifecycle advances one step at a time and double taps are rejected', () => {
-  const { store, item } = setup();
-  const { order_id } = store.placeOrder(1, { items: [{ item_id: item('Masala Chai').id, qty: 1 }] });
-  assert.equal(store.advanceOrder(order_id, { from: 'New' }).status, 'Preparing');
-  assert.throws(() => store.advanceOrder(order_id, { from: 'New' }), { status: 409 });
-  assert.equal(store.advanceOrder(order_id, { from: 'Preparing' }).status, 'Ready');
-  assert.equal(store.advanceOrder(order_id, { from: 'Ready' }).status, 'Served');
-  assert.throws(() => store.advanceOrder(order_id, { from: 'Served' }), { status: 409 });
-  assert.equal(store.kitchenOrders().length, 0, 'served orders leave the kitchen screen');
-});
+    await store.saveItem(pt.id, { is_available: false, price_paise: 99_900 }); // also a price change
+    await assert.rejects(store.placeOrder(3, { items: [{ item_id: pt.id, qty: 1 }] }), { status: 409 });
 
-test('bill applies 5% GST and closing frees the table', () => {
-  const { store, item, db } = setup();
-  const { order_id } = store.placeOrder(4, { items: [
-    { item_id: item('Butter Chicken').id, qty: 1 },   // 420
-    { item_id: item('Garlic Naan').id, qty: 3 },      // 240
-  ] });
-  assert.throws(() => store.closeTable(4), { status: 409 }, 'cannot close with unserved orders');
-  for (const from of ['New', 'Preparing', 'Ready']) store.advanceOrder(order_id, { from });
+    const k = (await store.kitchenOrders()).find((o) => o.id === order_id);
+    assert.equal(k.items[0].item_name, 'Paneer Tikka');
+    assert.equal(k.items[0].unit_price_at_order, 28_000, 'price is the snapshot, not the new menu price');
+    for (const from of ['New', 'Preparing', 'Ready']) await store.advanceOrder(order_id, { from });
+    assert.equal((await store.closeTable(2)).subtotal_paise, 56_000);
+    await db.close();
+  });
 
-  const bill = store.getTableBill(4);
-  assert.deepEqual([bill.subtotal_paise, bill.gst_paise, bill.total_paise], [66_000, 3_300, 69_300]);
-  store.closeTable(4);
-  assert.equal(store.getTableBill(4).orders.length, 0);
-  assert.equal(store.listTables().find((t) => t.id === 4).open_orders, 0);
-  assert.ok(db.q('SELECT paid_at FROM orders WHERE id = ?').get(order_id).paid_at);
-});
+  test(`[${engine}] lifecycle advances one step at a time and double taps are rejected`, async () => {
+    const { db, store, item } = await setup();
+    const { order_id } = await store.placeOrder(1, { items: [{ item_id: (await item('Masala Chai')).id, qty: 1 }] });
+    assert.equal((await store.advanceOrder(order_id, { from: 'New' })).status, 'Preparing');
+    await assert.rejects(store.advanceOrder(order_id, { from: 'New' }), { status: 409 });
+    assert.equal((await store.advanceOrder(order_id, { from: 'Preparing' })).status, 'Ready');
+    assert.equal((await store.advanceOrder(order_id, { from: 'Ready' })).status, 'Served');
+    await assert.rejects(store.advanceOrder(order_id, { from: 'Served' }), { status: 409 });
+    assert.equal((await store.kitchenOrders()).length, 0, 'served orders leave the kitchen screen');
+    await db.close();
+  });
 
-test('dashboard: revenue, prep time New→Ready, top items, hourly buckets', () => {
-  const { store, item, advance } = setup();
-  const bc = item('Butter Chicken'), naan = item('Butter Naan'), chai = item('Masala Chai');
+  test(`[${engine}] two kitchen screens tapping the same card at once advance it only once`, async () => {
+    const { db, store, item } = await setup();
+    const { order_id } = await store.placeOrder(1, { items: [{ item_id: (await item('Masala Chai')).id, qty: 1 }] });
+    const results = await Promise.allSettled([
+      store.advanceOrder(order_id, { from: 'New' }),
+      store.advanceOrder(order_id, { from: 'New' }),
+    ]);
+    assert.deepEqual(results.map((r) => r.status).sort(), ['fulfilled', 'rejected']);
+    await db.close();
+  });
 
-  const o1 = store.placeOrder(1, { items: [{ item_id: bc.id, qty: 1 }, { item_id: naan.id, qty: 4 }] }).order_id;
-  advance(2 * MIN); store.advanceOrder(o1, { from: 'New' });
-  advance(8 * MIN); store.advanceOrder(o1, { from: 'Preparing' }); // ready after 10 min
+  test(`[${engine}] bill applies 5% GST and closing frees the table`, async () => {
+    const { db, store, item } = await setup();
+    const { order_id } = await store.placeOrder(4, { items: [
+      { item_id: (await item('Butter Chicken')).id, qty: 1 },   // 420
+      { item_id: (await item('Garlic Naan')).id, qty: 3 },      // 240
+    ] });
+    await assert.rejects(store.closeTable(4), { status: 409 }, 'cannot close with unserved orders');
+    for (const from of ['New', 'Preparing', 'Ready']) await store.advanceOrder(order_id, { from });
 
-  advance(60 * MIN); // 13:10
-  const o2 = store.placeOrder(2, { items: [{ item_id: chai.id, qty: 2 }] }).order_id;
-  advance(1 * MIN); store.advanceOrder(o2, { from: 'New' });
-  advance(3 * MIN); store.advanceOrder(o2, { from: 'Preparing' }); // ready after 4 min
+    const bill = await store.getTableBill(4);
+    assert.deepEqual([bill.subtotal_paise, bill.gst_paise, bill.total_paise], [66_000, 3_300, 69_300]);
+    await store.closeTable(4);
+    assert.equal((await store.getTableBill(4)).orders.length, 0);
+    assert.equal(Number((await store.listTables()).find((t) => t.id === 4).open_orders), 0);
+    const [o] = await db.query('SELECT paid_at FROM orders WHERE id = $1', [order_id]);
+    assert.ok(o.paid_at);
+    await db.close();
+  });
 
-  const d = store.dashboard('2026-09-29');
-  assert.equal(d.orders, 2);
-  assert.equal(d.revenue_paise, 42_000 + 4 * 6_000 + 2 * 6_000);
-  assert.equal(d.avg_prep_ms, 7 * MIN);
-  assert.equal(d.top_items[0].name, 'Butter Naan');
-  assert.equal(d.by_hour[12].revenue_paise, 66_000);
-  assert.equal(d.by_hour[13].revenue_paise, 12_000);
-  assert.equal(store.dashboard('2026-09-28').orders, 0);
-});
+  test(`[${engine}] dashboard: revenue, prep time New→Ready, top items, hourly buckets`, async () => {
+    const { db, store, item, advance } = await setup();
+    const bc = await item('Butter Chicken'), naan = await item('Butter Naan'), chai = await item('Masala Chai');
 
-test('every seeded dish has a picture, and the manager can change it', () => {
-  const { store, item } = setup();
-  assert.ok(store.getMenu().items.every((i) => i.emoji), 'all dishes have a picture');
-  const chai = item('Masala Chai');
-  store.saveItem(chai.id, { emoji: '🍵' });
-  assert.equal(store.getMenu().items.find((i) => i.id === chai.id).emoji, '🍵');
-  assert.throws(() => store.saveItem(chai.id, { emoji: 'x'.repeat(40) }), { status: 400 });
-});
+    const o1 = (await store.placeOrder(1, { items: [{ item_id: bc.id, qty: 1 }, { item_id: naan.id, qty: 4 }] })).order_id;
+    advance(2 * MIN); await store.advanceOrder(o1, { from: 'New' });
+    advance(8 * MIN); await store.advanceOrder(o1, { from: 'Preparing' }); // ready after 10 min
 
-test('a database from before pictures existed is upgraded in place', () => {
+    advance(60 * MIN); // 13:10
+    const o2 = (await store.placeOrder(2, { items: [{ item_id: chai.id, qty: 2 }] })).order_id;
+    advance(1 * MIN); await store.advanceOrder(o2, { from: 'New' });
+    advance(3 * MIN); await store.advanceOrder(o2, { from: 'Preparing' }); // ready after 4 min
+
+    const d = await store.dashboard('2026-09-29');
+    assert.equal(d.orders, 2);
+    assert.equal(d.revenue_paise, 42_000 + 4 * 6_000 + 2 * 6_000);
+    assert.equal(d.avg_prep_ms, 7 * MIN);
+    assert.equal(d.top_items[0].name, 'Butter Naan');
+    assert.equal(d.top_items[0].emoji, '🫓');
+    assert.equal(d.by_hour[12].revenue_paise, 66_000);
+    assert.equal(d.by_hour[13].revenue_paise, 12_000);
+    assert.equal((await store.dashboard('2026-09-28')).orders, 0);
+    await db.close();
+  });
+
+  test(`[${engine}] "today" and hours follow the restaurant time zone, not the server`, async () => {
+    const db = await makeDb();
+    await setupSchema(db);
+    // 20:00 UTC on 29 Sep = 01:30 on 30 Sep in India.
+    const store = createStore(db, { now: () => Date.UTC(2026, 8, 29, 20, 0), tz: 'Asia/Kolkata' });
+    const [chai] = await db.query("SELECT id FROM menu_items WHERE name = 'Masala Chai'");
+    await store.placeOrder(1, { items: [{ item_id: chai.id, qty: 1 }] });
+    const d = await store.dashboard();
+    assert.equal(d.date, '2026-09-30');
+    assert.equal(d.orders, 1);
+    assert.equal(d.by_hour[1].orders, 1, 'counted in the 1 am hour, local time');
+    await db.close();
+  });
+
+  test(`[${engine}] every seeded dish has a picture, and the manager can change it`, async () => {
+    const { db, store, item } = await setup();
+    assert.ok((await store.getMenu()).items.every((i) => i.emoji), 'all dishes have a picture');
+    const chai = await item('Masala Chai');
+    await store.saveItem(chai.id, { emoji: '🍵' });
+    assert.equal((await store.getMenu()).items.find((i) => i.id === chai.id).emoji, '🍵');
+    await assert.rejects(store.saveItem(chai.id, { emoji: 'x'.repeat(40) }), { status: 400 });
+    await db.close();
+  });
+
+  test(`[${engine}] customer can edit and remove lines on a New order`, async () => {
+    const { db, store, item } = await setup();
+    const { order_id } = await store.placeOrder(5, { items: [{ item_id: (await item('Rasmalai')).id, qty: 1 }] });
+    const line = (await store.getTableBill(5)).orders[0].items[0];
+    await store.updateOrderLine(5, line.id, { qty: 3 });
+    assert.equal((await store.getTableBill(5)).orders[0].items[0].qty, 3);
+    await assert.rejects(store.updateOrderLine(6, line.id, { qty: 1 }), { status: 404 }, 'other tables cannot edit it');
+    await store.updateOrderLine(5, line.id, { qty: 0 });
+    assert.equal((await store.getTableBill(5)).orders.length, 0, 'empty order is removed');
+    assert.equal((await store.kitchenOrders()).some((o) => o.id === order_id), false);
+    await db.close();
+  });
+
+  test(`[${engine}] every write moves the live-sync version; reads don't`, async () => {
+    const { db, store, item } = await setup();
+    const v0 = await store.version();
+    await store.getMenu();
+    assert.equal(await store.version(), v0);
+    await store.placeOrder(1, { items: [{ item_id: (await item('Rasmalai')).id, qty: 1 }] });
+    assert.equal(await store.version(), v0 + 1);
+    await assert.rejects(store.placeOrder(1, { items: [] }), { status: 400 });
+    assert.equal(await store.version(), v0 + 1, 'a rejected write changes nothing');
+    await db.close();
+  });
+
+  test(`[${engine}] setup is safe to run again on an existing database`, async () => {
+    const db = await makeDb();
+    await setupSchema(db);
+    await setupSchema(db);
+    const [{ n }] = await db.query('SELECT COUNT(*) AS n FROM menu_items');
+    assert.equal(Number(n), 18, 'menu not seeded twice');
+    await db.close();
+  });
+}
+
+test('[sqlite] a database from before pictures existed is upgraded in place', async () => {
   const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { DatabaseSync } = require('node:sqlite');
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kds-')), 'old.db');
-  const db1 = open(file);
-  db1.exec("UPDATE menu_items SET emoji = ''");
-  // Recreate the old table shape (no emoji column) with the same rows.
-  db1.exec(`PRAGMA foreign_keys = OFF;
-    CREATE TABLE old_items AS SELECT id, category_id, name, price_paise, is_veg, prep_minutes, is_available, archived_at FROM menu_items;
-    DROP TABLE menu_items; ALTER TABLE old_items RENAME TO menu_items;`);
-  db1.close();
+  // The original schema: no emoji column, no app_state / login_failures tables.
+  const old = new DatabaseSync(file);
+  old.exec(`
+    CREATE TABLE menu_categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, archived_at INTEGER);
+    CREATE TABLE menu_items (id INTEGER PRIMARY KEY, category_id INTEGER NOT NULL, name TEXT NOT NULL, price_paise INTEGER NOT NULL,
+      is_veg INTEGER NOT NULL DEFAULT 1, prep_minutes INTEGER NOT NULL DEFAULT 10, is_available INTEGER NOT NULL DEFAULT 1, archived_at INTEGER);
+    INSERT INTO menu_categories (name, sort_order) VALUES ('Beverages', 1);
+    INSERT INTO menu_items (category_id, name, price_paise) VALUES (1, 'Masala Chai', 6000), (1, 'House Special', 9000);`);
+  old.close();
 
-  const db2 = open(file);
-  const rows = db2.prepare('SELECT name, emoji FROM menu_items').all();
-  assert.equal(rows.length, 18, 'no rows lost');
-  assert.equal(rows.find((r) => r.name === 'Masala Chai').emoji, '☕');
-  db2.close();
-});
-
-test('customer can edit and remove lines on a New order', () => {
-  const { store, item } = setup();
-  const { order_id } = store.placeOrder(5, { items: [{ item_id: item('Rasmalai').id, qty: 1 }] });
-  const line = store.getTableBill(5).orders[0].items[0];
-  store.updateOrderLine(5, line.id, { qty: 3 });
-  assert.equal(store.getTableBill(5).orders[0].items[0].qty, 3);
-  assert.throws(() => store.updateOrderLine(6, line.id, { qty: 1 }), { status: 404 }, 'other tables cannot edit it');
-  store.updateOrderLine(5, line.id, { qty: 0 });
-  assert.equal(store.getTableBill(5).orders.length, 0, 'empty order is removed');
-  assert.equal(store.kitchenOrders().some((o) => o.id === order_id), false);
+  const db = sqliteDb(file);
+  await setupSchema(db);
+  const rows = await db.query('SELECT name, emoji FROM menu_items ORDER BY id');
+  assert.equal(rows.length, 2, 'no rows lost, and no seed added on top');
+  assert.equal(rows[0].emoji, '☕', 'known dish gets its picture');
+  assert.equal(rows[1].emoji, '', 'unknown dish keeps the default');
+  assert.ok((await db.query("SELECT num FROM app_state WHERE name = 'version'"))[0]);
+  await db.close();
 });
