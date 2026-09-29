@@ -23,7 +23,7 @@ if ([int]$ahead -gt 0) {
   if ($LASTEXITCODE -eq 0) {
     Write-Output "{`"systemMessage`": `"Auto-pushed $ahead commit(s) to GitHub ($branch)`"}"
   } else {
-    $msg = ($out | Out-String).Trim() -replace '[\\"]', "'" -replace '\s+', ' '
+    $msg = (($out | ForEach-Object { "$_" }) -match '^(fatal|error|remote|!)' ) -join ' ' -replace '[\\"]', "'"
     Write-Output "{`"systemMessage`": `"Auto-push to GitHub failed: $msg`"}"
   }
 }
