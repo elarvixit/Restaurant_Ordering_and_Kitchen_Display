@@ -21,6 +21,12 @@ npm test               # business-rule tests (in-memory DB)
 **Screen options:**
 * **Veg / Non-veg filter** on the customer menu (All · Veg · Non-veg, with item counts). Category tabs show only
   the categories that have matching dishes, and the device remembers the choice.
+* **Dish pictures:** every menu item has a mini picture (an emoji on a gradient tile tinted by category), shown on
+  the menu, in the add dialog, cart, orders, best sellers and the menu editor. The manager picks or types it in the
+  item dialog (`menu_items.emoji`; older databases are upgraded automatically on start).
+* **Hover effects and animations:** cards lift on hover, pictures tilt, a dish flies into the cart when added,
+  menu cards slide in, kitchen tickets slide into their new column, and dashboard numbers count up with growing bars.
+  Everything is switched off for users whose system asks for reduced motion.
 * **Light / dark theme** button on every screen, including the PIN screens. Each screen remembers its own choice.
   The kitchen starts dark, and the others follow the device's system setting until you pick one.
 
