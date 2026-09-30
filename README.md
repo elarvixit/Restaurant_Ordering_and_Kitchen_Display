@@ -60,9 +60,18 @@ Querying the tables yourself: the names contain capital letters, so quote them:
 Differences from running locally: live sync polls `/api/version` every 2 s instead of instant push (orders reach
 the kitchen in about 2 s; the requirement is 5 s). Everything else is identical, because both use the same code.
 
+## Going live only after approval
+
+The live site deploys from `main`. Day-to-day work happens on the **`preview`** branch, so a change is backed up to
+GitHub straight away but does not reach the live site:
+
+1. Changes are made on `preview` (auto-pushed to `origin/preview`, see below).
+2. The owner is shown how the change looks (screenshots of a local run) and approves it.
+3. Only then `preview` is merged into `main` and pushed, which makes Vercel deploy it live.
+
 ## Automatic push to GitHub
 
-Every code change is committed and pushed to `origin/main` without anyone running git:
+Every code change is committed and pushed to the branch that is checked out (`preview`) without anyone running git:
 
 | Trigger | What runs |
 |---|---|
