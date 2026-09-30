@@ -445,3 +445,65 @@ dialog[open]::backdrop { animation: fade .25s ease; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition-duration: .01ms !important; }
 }
+
+/* ---------- home background (decorative, CSS only) ---------- */
+.home { --glow-1: #fb923c; --glow-2: #22c55e; --glow-3: #f59e0b; --glow-alpha: .30; --floater-alpha: .22; --dot: rgba(60, 45, 25, .10); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .home { --glow-1: #f97316; --glow-2: #16a34a; --glow-3: #eab308; --glow-alpha: .22; --floater-alpha: .20; --dot: rgba(255, 240, 220, .06); }
+}
+:root[data-theme="dark"] .home { --glow-1: #f97316; --glow-2: #16a34a; --glow-3: #eab308; --glow-alpha: .22; --floater-alpha: .20; --dot: rgba(255, 240, 220, .06); }
+
+.home { min-height: 100vh; min-height: 100dvh; }
+.home-bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.home .landing { position: relative; z-index: 1; }
+
+.home-bg .glow {
+  position: absolute; width: 46vmax; height: 46vmax; border-radius: 50%;
+  filter: blur(70px); opacity: var(--glow-alpha); will-change: transform;
+}
+.home-bg .g1 { background: var(--glow-1); top: -18vmax; left: -12vmax; animation: drift-1 26s ease-in-out infinite alternate; }
+.home-bg .g2 { background: var(--glow-2); bottom: -22vmax; right: -14vmax; animation: drift-2 32s ease-in-out infinite alternate; }
+.home-bg .g3 { background: var(--glow-3); top: 30%; left: 45%; width: 30vmax; height: 30vmax; animation: drift-3 22s ease-in-out infinite alternate; }
+
+.home-bg .dots {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(var(--dot) 1.2px, transparent 1.3px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 75%);
+}
+
+.home-bg .floater {
+  position: absolute; left: var(--x); bottom: -60px; font-size: var(--s); line-height: 1;
+  opacity: 0; animation: float-up var(--d) linear var(--w) infinite; will-change: transform, opacity;
+}
+
+@keyframes drift-1 { to { transform: translate(14vw, 10vh) scale(1.15); } }
+@keyframes drift-2 { to { transform: translate(-12vw, -12vh) scale(1.1); } }
+@keyframes drift-3 { 0% { transform: translate(-20%, -10%) scale(.9); } 100% { transform: translate(10%, 15%) scale(1.2); } }
+@keyframes float-up {
+  0%   { transform: translateY(0) rotate(-12deg); opacity: 0; }
+  12%  { opacity: var(--floater-alpha); }
+  50%  { transform: translateY(-55vh) translateX(18px) rotate(10deg); }
+  88%  { opacity: var(--floater-alpha); }
+  100% { transform: translateY(-115vh) translateX(-10px) rotate(-8deg); opacity: 0; }
+}
+
+/* Frosted-glass cards so the background shows through. */
+.home .screen-card {
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2); backdrop-filter: blur(12px) saturate(1.2);
+}
+.home .landing h1 {
+  background: linear-gradient(90deg, var(--ink) 0%, var(--accent) 55%, var(--ink) 100%);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: rise .5s cubic-bezier(.2,.8,.2,1) both, shimmer 9s ease-in-out 1s infinite;
+}
+@keyframes shimmer { 0%, 100% { background-position: 100% 0; } 50% { background-position: 0 0; } }
+
+/* Less motion requested: keep the look, stop the movement, show the food still. */
+@media (prefers-reduced-motion: reduce) {
+  .home-bg .glow, .home .landing h1 { animation: none !important; }
+  .home .landing h1 { background-position: 50% 0; }
+  .home-bg .floater { animation: none !important; bottom: auto; top: var(--y); opacity: var(--floater-alpha); }
+}
