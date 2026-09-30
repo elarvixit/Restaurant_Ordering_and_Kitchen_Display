@@ -47,7 +47,7 @@
     kpis(s, roundTrip);
 
     $('settings').innerHTML = s.settings.map((v) => `
-      <li>${dot(v.ok)}<div><code>${esc(v.name)}</code>${v.required ? '' : ' <span class="muted">(optional)</span>'}
+      <li>${dot(v.ok)}<div><span><code>${esc(v.name)}</code>${v.required ? '' : ' <span class="muted">(optional)</span>'}</span>
       <span class="muted">${esc(v.detail)}</span></div><span class="verdict">${word(v.ok)}</span></li>`).join('');
 
     const d = s.database;
