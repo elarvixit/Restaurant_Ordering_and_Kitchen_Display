@@ -147,10 +147,15 @@ const SCHEMA_VERSION = 2; // bump when upgrade() learns something new
 
 async function setup(db) {
   // Fast path for serverless cold starts: one query when the database is current.
-  try {
+  // Asks whether app_state exists first rather than catching the error, so a fresh database
+  // never sees a failing statement (some poolers drop the connection after one).
+  const [{ n: hasState }] = await db.query(db.dialect === 'postgres'
+    ? 'SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1'
+    : "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = $1", [NAMES.app_state]);
+  if (Number(hasState) > 0) {
     const rows = await db.query(`SELECT num FROM ${T.app_state} WHERE name = 'schema'`);
     if (rows[0] && Number(rows[0].num) >= SCHEMA_VERSION) return;
-  } catch { /* app_state not created yet */ }
+  }
 
   if (db.dialect === 'postgres') {
     await db.tx(async (t) => {
