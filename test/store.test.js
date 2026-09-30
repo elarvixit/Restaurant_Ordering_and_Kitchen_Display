@@ -230,5 +230,57 @@ test('[sqlite] a database from before pictures existed is upgraded in place', as
   assert.equal(rows[0].emoji, '☕', 'known dish gets its picture');
   assert.equal(rows[1].emoji, '', 'unknown dish keeps the default');
   assert.ok((await db.query(`SELECT num FROM ${T.app_state} WHERE name = 'version'`))[0]);
+  const left = await db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('menu_items', 'menu_categories')");
+  assert.deepEqual(left, [], 'old unprefixed tables are renamed, not copied');
   await db.close();
+});
+
+test('[sqlite] a local database with the old unprefixed table names keeps its orders', async () => {
+  const { BASE, NAMES } = require('../src/tables');
+  const db = sqliteDb(':memory:');
+  await setupSchema(db);
+  const store = createStore(db, { tz: 'UTC' });
+  const [naan] = await db.query(`SELECT id FROM ${T.menu_items} WHERE name = 'Butter Naan'`);
+  const { order_id } = await store.placeOrder(3, { items: [{ item_id: naan.id, qty: 2 }] });
+  // Turn it back into a database from before the prefix: old table names, old index names.
+  for (const b of BASE) await db.exec(`ALTER TABLE ${T[b]} RENAME TO "${b}"`);
+  for (const { name } of await db.query("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'babji%'")) {
+    await db.exec(`DROP INDEX "${name}"`);
+  }
+  await db.exec('CREATE INDEX idx_orders_placed ON orders(placed_at)');
+
+  await setupSchema(db);
+  const names = (await db.query("SELECT name FROM sqlite_master WHERE type = 'table'")).map((r) => r.name).sort();
+  assert.deepEqual(names, Object.values(NAMES).sort());
+  const bill = await store.getTableBill(3);
+  assert.equal(bill.orders[0].id, order_id);
+  assert.equal(bill.subtotal_paise, 12000);
+  assert.deepEqual(await db.query('PRAGMA foreign_key_check'), [], 'foreign keys point at the renamed tables');
+  const idx = (await db.query("SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%'")).map((r) => r.name);
+  assert.ok(!idx.includes('idx_orders_placed') && idx.every((n) => n.startsWith('babji_RestaurantKitchen_')));
+  await db.close();
+});
+
+test('[postgres] supabase/schema.sql creates exactly the schema the app creates', async () => {
+  const shape = async (db) => ({
+    columns: await db.query(`
+      SELECT table_name, column_name, data_type, is_nullable, column_default, is_identity
+      FROM information_schema.columns WHERE table_schema = 'public' ORDER BY table_name, column_name`),
+    indexes: await db.query(`SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public' ORDER BY indexname`),
+    rls: await db.query(`SELECT relname, relrowsecurity FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace ORDER BY relname`),
+    menu: await db.query(`SELECT c.name AS category, c.sort_order, i.name, i.price_paise, i.is_veg, i.prep_minutes, i.emoji
+                          FROM ${T.menu_items} i JOIN ${T.menu_categories} c ON c.id = i.category_id ORDER BY i.name`),
+    tables: await db.query(`SELECT number, seats FROM ${T.tables} ORDER BY number`),
+  });
+  const byApp = await pgliteDb();
+  await setupSchema(byApp);
+  const byScript = await supabaseScriptDb();
+  await byScript.exec(SUPABASE_SQL); // running it twice is harmless
+  const a = await shape(byApp), b = await shape(byScript);
+  assert.ok(a.columns.every((c) => c.table_name.startsWith('babji_RestaurantKitchen_')));
+  assert.ok(a.indexes.every((i) => i.indexname.startsWith('babji_RestaurantKitchen_')));
+  assert.ok(a.rls.length === 8 && a.rls.every((r) => r.relrowsecurity), 'row level security is on for every table');
+  assert.deepEqual(b, a);
+  await byApp.close();
+  await byScript.close();
 });
