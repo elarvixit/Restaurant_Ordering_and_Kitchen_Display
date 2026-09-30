@@ -464,3 +464,57 @@ test('splitGst shares the GST so it always adds up to the bill total', () => {
     assert.equal(splitGst(subs, gst).reduce((a, b) => a + b, 0), gst);
   }
 });
+
+for (const [engine, makeDb] of ENGINES.filter(([e]) => e !== 'postgres/pg-driver')) {
+  async function servedTable(tableNo) {
+    const db = await makeDb();
+    await setupSchema(db);
+    const store = createStore(db, { tz: 'UTC' });
+    const id = async (n) => (await db.query(`SELECT id FROM ${T.menu_items} WHERE name = $1`, [n]))[0].id;
+    // 1 Butter Chicken 420 + 3 Butter Naan 60 + 2 Masala Chai 60 = Rs 720, GST Rs 36
+    const { order_id } = await store.placeOrder(tableNo, { items: [
+      { item_id: await id('Butter Chicken'), qty: 1 }, { item_id: await id('Butter Naan'), qty: 3 }, { item_id: await id('Masala Chai'), qty: 2 }] });
+    for (const from of ['New', 'Preparing', 'Ready']) await store.advanceOrder(order_id, { from });
+    const bill = await store.getTableBill(tableNo);
+    const line = (n) => bill.orders[0].items.find((l) => l.item_name === n).id;
+    return { db, store, bill, line };
+  }
+
+  test(`[${engine}] split bill by item: each payer pays for their own items, GST adds up`, async () => {
+    const { db, store, line } = await servedTable(6);
+    const r = await store.closeTable(6, { payers: [
+      { name: 'Asha', items: [{ line_id: line('Butter Chicken'), qty: 1 }, { line_id: line('Butter Naan'), qty: 2 }] },
+      { name: 'Ravi', items: [{ line_id: line('Butter Naan'), qty: 1 }, { line_id: line('Masala Chai'), qty: 2 }] },
+    ] });
+    assert.equal(r.total_paise, 75600);
+    assert.deepEqual(r.payers.map((p) => [p.name, p.subtotal_paise, p.gst_paise, p.total_paise]),
+      [['Asha', 54000, 2700, 56700], ['Ravi', 18000, 900, 18900]]);
+    assert.equal(r.payers.reduce((s, p) => s + p.total_paise, 0), r.total_paise, 'payers add up to the bill');
+    const saved = await db.query(`SELECT name, subtotal, gst, total FROM ${T.bill_payers} WHERE bill_id = $1 ORDER BY payer_no`, [r.bill_id]);
+    assert.deepEqual(saved.map((p) => [p.name, p.total]), [['Asha', 567], ['Ravi', 189]]);
+    const units = await db.query(`SELECT SUM(qty) AS n FROM ${T.bill_payer_items}`);
+    assert.equal(Number(units[0].n), 6, 'all 6 units recorded');
+    assert.equal(Number((await store.listTables()).find((t) => t.number === 6).open_orders), 0, 'table is free');
+    await db.close();
+  });
+
+  test(`[${engine}] a split must cover every item exactly once, or nothing is closed`, async () => {
+    const { db, store, line } = await servedTable(8);
+    const bc = line('Butter Chicken'), naan = line('Butter Naan'), chai = line('Masala Chai');
+    const tryClose = (payers) => store.closeTable(8, { payers });
+    await assert.rejects(tryClose([{ items: [{ line_id: bc, qty: 1 }, { line_id: naan, qty: 3 }] },
+      { items: [{ line_id: chai, qty: 1 }] }]), { status: 400, message: /Masala Chai: 1 of 2/ }, 'a chai left over');
+    await assert.rejects(tryClose([{ items: [{ line_id: bc, qty: 1 }, { line_id: naan, qty: 3 }, { line_id: chai, qty: 2 }] },
+      { items: [{ line_id: naan, qty: 1 }] }]), { status: 400, message: /Butter Naan: 4 of 3/ }, 'a naan paid twice');
+    await assert.rejects(tryClose([{ items: [{ line_id: bc, qty: 1 }, { line_id: naan, qty: 3 }, { line_id: chai, qty: 2 }] },
+      { items: [] }]), { status: 400, message: /Payer 2 has no items/ });
+    await assert.rejects(tryClose([{ items: [{ line_id: bc, qty: 1 }] }]), { status: 400, message: /between 2 and 10/ });
+    await assert.rejects(tryClose([{ items: [{ line_id: 999999, qty: 1 }] }, { items: [{ line_id: bc, qty: 1 }] }]),
+      { status: 400, message: /not on this bill/ });
+    assert.equal((await store.getTableBill(8)).orders.length, 1, 'still open after every refusal');
+    assert.equal(Number((await db.query(`SELECT COUNT(*) AS n FROM ${T.bills}`))[0].n), 0);
+    const plain = await store.closeTable(8);
+    assert.deepEqual(plain.payers, [], 'closing without a split still works');
+    await db.close();
+  });
+}
