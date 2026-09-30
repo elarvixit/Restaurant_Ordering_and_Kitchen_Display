@@ -394,6 +394,56 @@ test('[sqlite] a local paise database (schema 2) is converted to rupees once', a
   assert.deepEqual([bill.subtotal, bill.gst, bill.total], [561, 28.05, 589.05]);
   assert.equal(line.unit_price_at_order, 280.5);
   assert.equal((await createStore(db, { tz: 'UTC' }).getMenu()).items[0].price_paise, 28050, 'the app still reads exact paise');
-  assert.equal((await db.query(`SELECT num FROM ${T.app_state} WHERE name = 'schema'`))[0].num, 3);
+  assert.equal((await db.query(`SELECT num FROM ${T.app_state} WHERE name = 'schema'`))[0].num, 4);
   await db.close();
+});
+
+// ---------- dish photos ----------
+
+const PHOTO_DIR = require('node:path').join(__dirname, '..', 'public', 'img', 'menu');
+
+for (const [engine, makeDb] of ENGINES.filter(([e]) => e !== 'postgres/pg-driver')) {
+  test(`[${engine}] every starting dish has a real photo, and its file exists`, async () => {
+    const db = await makeDb();
+    await setupSchema(db);
+    const { items } = await createStore(db).getMenu();
+    assert.equal(items.length, 18);
+    for (const i of items) {
+      assert.match(i.photo, /^[a-z0-9-]+\.jpg$/, `${i.name} has a photo`);
+      assert.ok(require('node:fs').existsSync(require('node:path').join(PHOTO_DIR, i.photo)), `${i.photo} exists`);
+    }
+    assert.equal(items.find((i) => i.name === 'Paneer Tikka').photo, 'paneer-tikka.jpg');
+    await db.close();
+  });
+}
+
+test('[postgres] dishes keep their photo when edited; new dishes show their emoji', async () => {
+  const db = await pgliteDb();
+  await setupSchema(db);
+  const store = createStore(db);
+  const byName = async (n) => (await store.getMenu()).items.find((i) => i.name === n);
+  const chai = await byName('Masala Chai');
+  await store.saveItem(chai.id, { price_paise: 7000, name: 'Masala Chai (large)' });
+  assert.equal((await byName('Masala Chai (large)')).photo, 'masala-chai.jpg', 'rename and price change keep the photo');
+  const { id } = await store.saveItem(null, { category_id: chai.category_id, name: 'Filter Coffee', price_paise: 5000, prep_minutes: 3, emoji: '☕' });
+  const coffee = (await store.getMenu()).items.find((i) => i.id === id);
+  assert.equal(coffee.photo, '');
+  assert.equal(coffee.emoji, '☕');
+  await db.close();
+});
+
+test('[postgres] a database from before photos gets them (app and supabase/schema.sql)', async () => {
+  for (const how of ['app', 'script']) {
+    const db = await pgliteDb();
+    await setupSchema(db);
+    await db.exec(`ALTER TABLE ${T.menu_items} DROP COLUMN photo`);
+    await db.exec(`UPDATE ${T.app_state} SET num = 3 WHERE name = 'schema'`);
+    await db.exec(`INSERT INTO ${T.menu_items} (category_id, name, price, emoji) VALUES (1, 'Chef Special', 250, '⭐')`);
+    if (how === 'app') await setupSchema(db); else { await db.exec(SUPABASE_SQL); await setupSchema(db); }
+    const rows = await db.query(`SELECT name, photo FROM ${T.menu_items} ORDER BY id`);
+    assert.equal(rows.filter((r) => r.photo).length, 18, `${how}: all starting dishes get a photo`);
+    assert.equal(rows.find((r) => r.name === 'Chef Special').photo, '', `${how}: a dish the manager added keeps its emoji`);
+    assert.equal(rows.find((r) => r.name === 'Dal Makhani').photo, 'dal-makhani.jpg');
+    await db.close();
+  }
 });
