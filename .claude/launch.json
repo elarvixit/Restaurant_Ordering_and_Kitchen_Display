@@ -13,6 +13,19 @@
       "runtimeArgs": ["server.js"],
       "port": 3100,
       "autoPort": true
+    },
+    {
+      "name": "fake-realtime",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["C:/Users/user/AppData/Local/Temp/claude/C--Users-user-Desktop-Restaurant-Ordering-and-Kitchen-Display/5e967906-4d80-45bf-9258-2c4c94dabc9e/scratchpad/fake-realtime.js"],
+      "port": 54999
+    },
+    {
+      "name": "restaurant-realtime-test",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--env-file=C:/Users/user/AppData/Local/Temp/claude/C--Users-user-Desktop-Restaurant-Ordering-and-Kitchen-Display/5e967906-4d80-45bf-9258-2c4c94dabc9e/scratchpad/realtime.env", "server.js"],
+      "port": 3200,
+      "autoPort": true
     }
   ]
 }
