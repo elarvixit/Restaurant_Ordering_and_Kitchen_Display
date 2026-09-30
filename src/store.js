@@ -76,7 +76,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       SELECT id, name, sort_order FROM ${T.menu_categories}
       WHERE archived_at IS NULL ORDER BY sort_order, name`);
     const items = await db.query(`
-      SELECT id, category_id, name, ${paise('price')} AS price_paise, is_veg, prep_minutes, is_available, emoji
+      SELECT id, category_id, name, ${paise('price')} AS price_paise, is_veg, prep_minutes, is_available, emoji, photo
       FROM ${T.menu_items} WHERE archived_at IS NULL ORDER BY name`);
     return { categories, items };
   }
@@ -390,6 +390,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
              COALESCE(m.name, MAX(oi.item_name))       AS name,
              m.is_veg                                  AS is_veg,
              m.emoji                                   AS emoji,
+             m.photo                                   AS photo,
              m.category_id                             AS category_id,
              SUM(oi.qty)                               AS qty,
              ${paise('SUM(oi.qty * oi.unit_price_at_order)')} AS revenue_paise
@@ -397,7 +398,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       JOIN ${T.orders} o          ON o.id = oi.order_id
       LEFT JOIN ${T.menu_items} m ON m.id = oi.item_id
       WHERE o.placed_at >= $1 AND o.placed_at < $2
-      GROUP BY oi.item_id, m.name, m.is_veg, m.emoji, m.category_id
+      GROUP BY oi.item_id, m.name, m.is_veg, m.emoji, m.photo, m.category_id
       ORDER BY qty DESC, revenue_paise DESC, name
       LIMIT 5`, [start, end]);
 

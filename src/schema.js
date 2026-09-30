@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS ${T.menu_items} (
   prep_minutes INTEGER NOT NULL DEFAULT 10 CHECK (prep_minutes >= 0),
   is_available INTEGER NOT NULL DEFAULT 1 CHECK (is_available IN (0, 1)),
   emoji        TEXT    NOT NULL DEFAULT '',  -- the dish's mini picture on the menu
+  photo        TEXT    NOT NULL DEFAULT '',  -- photo file in public/img/menu/, '' = show the emoji
   -- Items are archived, never deleted, so historical order_items keep a valid FK.
   archived_at  ${TS}
 );
@@ -139,11 +140,13 @@ const SEED_MENU = [
   ]],
 ];
 const SEED_EMOJI = new Map(SEED_MENU.flatMap(([, items]) => items.map((i) => [i[0], i[4]])));
+// Every seeded dish has a photo in public/img/menu/ named after it: 'Paneer Tikka' -> paneer-tikka.jpg.
+const photoFile = (name) => `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}.jpg`;
 
 // Creates tables, upgrades older databases in place, and seeds an empty one.
 // Safe to run on every start. On Postgres an advisory lock stops two cold-starting
 // serverless instances from seeding twice.
-const SCHEMA_VERSION = 3; // bump when upgrade() learns something new
+const SCHEMA_VERSION = 4; // bump when upgrade() learns something new
 
 async function setup(db) {
   // Fast path for serverless cold starts: one query when the database is current.
@@ -216,6 +219,13 @@ async function moneyToRupees(t) {
 async function upgrade(t) {
   await moneyToRupees(t);
   const cols = await columns(t, 'menu_items');
+  if (!cols.has('photo')) {
+    // Schema 4: real photos for the seeded dishes (matched by name; other dishes keep their emoji).
+    await t.query(`ALTER TABLE ${T.menu_items} ADD COLUMN photo TEXT NOT NULL DEFAULT ''`);
+    for (const name of SEED_EMOJI.keys()) {
+      await t.query(`UPDATE ${T.menu_items} SET photo = $1 WHERE name = $2 AND photo = ''`, [photoFile(name), name]);
+    }
+  }
   if (!cols.has('emoji')) {
     await t.query(`ALTER TABLE ${T.menu_items} ADD COLUMN emoji TEXT NOT NULL DEFAULT ''`);
     for (const [name, emoji] of SEED_EMOJI) {
@@ -234,8 +244,8 @@ async function seed(t) {
     const [{ id: catId }] = await t.query(
       `INSERT INTO ${T.menu_categories} (name, sort_order) VALUES ($1, $2) RETURNING id`, [category, i + 1]);
     for (const [name, rupees, veg, prep, emoji] of items) {
-      await t.query(`INSERT INTO ${T.menu_items} (category_id, name, price, is_veg, prep_minutes, emoji)
-                     VALUES ($1, $2, $3, $4, $5, $6)`, [catId, name, rupees, veg, prep, emoji]);
+      await t.query(`INSERT INTO ${T.menu_items} (category_id, name, price, is_veg, prep_minutes, emoji, photo)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7)`, [catId, name, rupees, veg, prep, emoji, photoFile(name)]);
     }
   }
   for (let n = 1; n <= 12; n++) {
