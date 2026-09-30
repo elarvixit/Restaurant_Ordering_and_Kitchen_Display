@@ -141,3 +141,10 @@ test('status flags the usual Supabase mistakes in DATABASE_URL', () => {
     process.env = saved;
   }
 });
+
+test('the status report is switched off on Vercel (the live site)', async () => {
+  const { call, close } = await serve(await pgliteDb(), { push: false, statusPage: false });
+  const { body: { token } } = await call('/api/login', { method: 'POST', body: { role: 'manager', pin: '2222' } });
+  assert.equal((await call('/api/admin/status', { token })).status, 404);
+  await close();
+});

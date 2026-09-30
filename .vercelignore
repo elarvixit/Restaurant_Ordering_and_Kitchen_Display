@@ -5,3 +5,7 @@ server.js
 data/
 scripts/
 test/
+# The System status page is for the local server only; it is not published on the live site.
+public/status.html
+public/js/status.js
+src/status.js
