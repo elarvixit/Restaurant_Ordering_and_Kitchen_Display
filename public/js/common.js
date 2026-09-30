@@ -251,7 +251,7 @@ const App = (() => {
         live: ['Live', 'live', 'Receiving instant updates from the server'],
         'live-ws': ['Live', 'live', 'Instant updates over WebSocket (Supabase Realtime)'],
         'live-poll': ['Live', 'live', 'Checking for new orders every 2 seconds'],
-        polling: ['Reconnecting…', 'polling', 'Live stream lost, checking every 3 seconds'],
+        polling: ['Reconnecting…', 'polling', 'Live connection lost: checking every few seconds and reconnecting'],
         offline: ['Offline', 'polling', 'Cannot reach the server, retrying'],
       };
       const [text, look, title] = labels[state] || labels.polling;
