@@ -23,10 +23,19 @@ async function pgDriverDb() {
   return { ...db, close: async () => { await db.close(); await server.stop(); } };
 }
 
+// Postgres whose tables were created by supabase/schema.sql (what you run in Supabase's SQL editor).
+const SUPABASE_SQL = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'supabase', 'schema.sql'), 'utf8');
+async function supabaseScriptDb() {
+  const db = await pgliteDb();
+  await db.exec(SUPABASE_SQL);
+  return db;
+}
+
 const ENGINES = [
   ['sqlite', async () => sqliteDb(':memory:')],
   ['postgres', () => pgliteDb()],
   ['postgres/pg-driver', pgDriverDb],
+  ['postgres/supabase.sql', supabaseScriptDb],
 ];
 
 for (const [engine, makeDb] of ENGINES) {
