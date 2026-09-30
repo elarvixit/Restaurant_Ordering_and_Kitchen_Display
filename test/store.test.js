@@ -225,8 +225,9 @@ test('[sqlite] a database from before pictures existed is upgraded in place', as
 
   const db = sqliteDb(file);
   await setupSchema(db);
-  const rows = await db.query(`SELECT name, emoji FROM ${T.menu_items} ORDER BY id`);
+  const rows = await db.query(`SELECT name, emoji, price FROM ${T.menu_items} ORDER BY id`);
   assert.equal(rows.length, 2, 'no rows lost, and no seed added on top');
+  assert.deepEqual(rows.map((r) => r.price), [60, 90], 'paise converted to rupees');
   assert.equal(rows[0].emoji, '☕', 'known dish gets its picture');
   assert.equal(rows[1].emoji, '', 'unknown dish keeps the default');
   assert.ok((await db.query(`SELECT num FROM ${T.app_state} WHERE name = 'version'`))[0]);
@@ -268,7 +269,7 @@ test('[postgres] supabase/schema.sql creates exactly the schema the app creates'
       FROM information_schema.columns WHERE table_schema = 'public' ORDER BY table_name, column_name`),
     indexes: await db.query(`SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public' ORDER BY indexname`),
     rls: await db.query(`SELECT relname, relrowsecurity FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace ORDER BY relname`),
-    menu: await db.query(`SELECT c.name AS category, c.sort_order, i.name, i.price_paise, i.is_veg, i.prep_minutes, i.emoji
+    menu: await db.query(`SELECT c.name AS category, c.sort_order, i.name, i.price, i.is_veg, i.prep_minutes, i.emoji
                           FROM ${T.menu_items} i JOIN ${T.menu_categories} c ON c.id = i.category_id ORDER BY i.name`),
     tables: await db.query(`SELECT number, seats FROM ${T.tables} ORDER BY number`),
   });

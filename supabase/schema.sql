@@ -107,6 +107,35 @@ CREATE INDEX IF NOT EXISTS "babji_RestaurantKitchen_idx_bills_closed"
 CREATE INDEX IF NOT EXISTS "babji_RestaurantKitchen_idx_items_category"
   ON "babji_RestaurantKitchen_menu_items"(category_id);
 
+-- ---------------------------------------------------------------- paise -> rupees
+-- Databases created before this change stored money as whole paise (48000) in *_paise columns.
+-- This converts them in place to rupees (480.00). It does nothing on a database that is already
+-- in rupees, so it is safe to run again. (The app does the same conversion on its own at start.)
+
+DO $$
+DECLARE
+  c RECORD;
+BEGIN
+  FOR c IN SELECT * FROM (VALUES
+      ('babji_RestaurantKitchen_menu_items',  'price_paise',         'price',               10),
+      ('babji_RestaurantKitchen_order_items', 'unit_price_at_order', 'unit_price_at_order', 10),
+      ('babji_RestaurantKitchen_bills',       'subtotal_paise',      'subtotal',            12),
+      ('babji_RestaurantKitchen_bills',       'gst_paise',           'gst',                 12),
+      ('babji_RestaurantKitchen_bills',       'total_paise',         'total',               12)
+    ) AS m(tbl, old_col, new_col, prec)
+  LOOP
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema = current_schema() AND table_name = c.tbl
+                 AND column_name = c.old_col AND data_type = 'integer') THEN
+      IF c.old_col <> c.new_col THEN
+        EXECUTE format('ALTER TABLE %I RENAME COLUMN %I TO %I', c.tbl, c.old_col, c.new_col);
+      END IF;
+      EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE NUMERIC(%s, 2) USING %I / 100.0',
+                     c.tbl, c.new_col, c.prec, c.new_col);
+    END IF;
+  END LOOP;
+END $$;
+
 -- ---------------------------------------------------------------- security
 -- Supabase exposes every table in "public" through its REST API to anyone holding the project's
 -- anon key. Row level security with no policies blocks that completely. The app itself connects
