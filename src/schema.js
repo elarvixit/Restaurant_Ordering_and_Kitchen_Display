@@ -185,7 +185,7 @@ async function upgrade(t) {
     ? 'SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1'
     : 'SELECT name FROM pragma_table_info($1)', [NAMES.menu_items])).map((c) => c.name);
   if (!cols.includes('emoji')) {
-    await t.query("ALTER TABLE menu_items ADD COLUMN emoji TEXT NOT NULL DEFAULT ''");
+    await t.query(`ALTER TABLE ${T.menu_items} ADD COLUMN emoji TEXT NOT NULL DEFAULT ''`);
     for (const [name, emoji] of SEED_EMOJI) {
       await t.query(`UPDATE ${T.menu_items} SET emoji = $1 WHERE name = $2 AND emoji = ''`, [emoji, name]);
     }
