@@ -93,3 +93,51 @@ test('database connection problems get a clear message that never repeats the se
   }
   assert.equal(connectionHint(new Error('some bug')), null, 'other errors stay a plain 500');
 });
+
+test('[postgres] /api/admin/status needs the manager PIN and never shows a secret', async () => {
+  const saved = { ...process.env };
+  process.env.DATABASE_URL = 'postgresql://postgres.projref:TopSecretPw@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres';
+  process.env.SESSION_SECRET = 'a-very-long-session-secret-value-1234567890';
+  try {
+    const { call, close } = await serve(await pgliteDb(), { push: false });
+    assert.equal((await call('/api/admin/status')).status, 401);
+    const { body: { token: kitchen } } = await call('/api/login', { method: 'POST', body: { role: 'kitchen', pin: '1111' } });
+    assert.equal((await call('/api/admin/status', { token: kitchen })).status, 403, 'kitchen PIN is not enough');
+
+    const { body: { token } } = await call('/api/login', { method: 'POST', body: { role: 'manager', pin: '2222' } });
+    const { status, body } = await call('/api/admin/status', { token });
+    assert.equal(status, 200);
+    assert.equal(body.database.connected, true);
+    assert.equal(body.tables.length, 8);
+    assert.ok(body.tables.every((t) => t.name.startsWith('babji_RestaurantKitchen_') && t.rls === true));
+    assert.equal(body.tables.find((t) => t.name.endsWith('_menu_items')).rows, 18);
+    const byName = Object.fromEntries(body.settings.map((s) => [s.name, s]));
+    assert.equal(byName.DATABASE_URL.ok, true);
+    assert.match(byName.DATABASE_URL.detail, /pooler\.supabase\.com:6543/);
+    assert.equal(byName.KITCHEN_PIN.ok, true);
+    assert.equal(byName.SESSION_SECRET.ok, true);
+    const text = JSON.stringify(body);
+    for (const secret of ['TopSecretPw', 'projref', 'a-very-long-session-secret', '1111', '2222', 'test-secret']) {
+      assert.ok(!text.includes(secret), `status must not contain ${secret}`);
+    }
+    await close();
+  } finally {
+    process.env = saved;
+  }
+});
+
+test('status flags the usual Supabase mistakes in DATABASE_URL', () => {
+  const { settings } = require('../src/status');
+  const saved = { ...process.env };
+  const db = (url) => { process.env.DATABASE_URL = url; return settings({ kitchen: '7', manager: '8' }).find((s) => s.name === 'DATABASE_URL'); };
+  try {
+    process.env.VERCEL = '1';
+    assert.match(db('https://ikql.supabase.co/rest/v1/').detail, /must be postgresql/);
+    assert.equal(db('postgresql://postgres:pw@db.ikql.supabase.co:5432/postgres').ok, false, 'direct connection on Vercel');
+    assert.equal(db('postgresql://postgres.ikql:pw@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres').ok, true);
+    delete process.env.DATABASE_URL;
+    assert.equal(settings({ kitchen: '7', manager: '8' }).find((s) => s.name === 'DATABASE_URL').ok, false, 'missing on Vercel');
+  } finally {
+    process.env = saved;
+  }
+});
