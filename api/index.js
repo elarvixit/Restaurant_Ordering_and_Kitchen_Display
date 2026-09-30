@@ -27,6 +27,16 @@ const makeHandler = (api) => async (req, res) => {
 };
 
 const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+// Supabase shows several addresses; only the postgresql:// one is a database connection.
+const notPostgres = url && !/^postgres(ql)?:\/\//i.test(url.trim());
+const wrongUrl = (req, res) => {
+  res.statusCode = 503;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify({
+    error: 'DATABASE_URL must start with postgresql:// (Supabase > Connect > Transaction pooler). '
+      + 'An https://...supabase.co address is the Project URL for the REST API, not the database.',
+  }));
+};
 // Created once per function instance and reused across requests.
-module.exports = makeHandler(url ? createApi(postgresDb(url), { push: false }) : null);
+module.exports = notPostgres ? wrongUrl : makeHandler(url ? createApi(postgresDb(url.trim()), { push: false }) : null);
 module.exports.makeHandler = makeHandler;
