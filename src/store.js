@@ -50,6 +50,17 @@ function bool(value) {
 // "$1, $2, ..." for an IN (...) list, starting at placeholder number `from`.
 const list = (n, from = 1) => Array.from({ length: n }, (_, i) => `$${from + i}`).join(', ');
 
+// Shares the bill's GST between payers so the shares add up to exactly `totalGst`: each payer
+// gets 5% of their subtotal rounded down, and the paise left over go to the largest remainders.
+function splitGst(subtotals, totalGst) {
+  const exact = subtotals.map((s) => (s * GST_RATE_PERCENT) / 100);
+  const shares = exact.map(Math.floor);
+  let left = totalGst - shares.reduce((a, b) => a + b, 0);
+  const order = exact.map((e, i) => [e - Math.floor(e), i]).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+  for (let k = 0; left > 0 && k < order.length; k++, left--) shares[order[k][1]] += 1;
+  return shares;
+}
+
 function billTotals(subtotal) {
   const gst = Math.round((subtotal * GST_RATE_PERCENT) / 100);
   return { subtotal_paise: subtotal, gst_paise: gst, total_paise: subtotal + gst, gst_rate_percent: GST_RATE_PERCENT };
@@ -336,7 +347,45 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
     });
   }
 
-  function closeTable(tableId) {
+  // Split by item: body.payers = [{ name, items: [{ line_id, qty }] }, ...], 2 to 10 payers.
+  // Every unit of every line on the bill must go to exactly one payer (3 naan may be 2 + 1).
+  function readPayers(body, bill) {
+    if (body.payers === undefined || body.payers === null) return null;
+    if (!Array.isArray(body.payers) || body.payers.length < 2 || body.payers.length > 10) {
+      throw bad('A split bill needs between 2 and 10 payers');
+    }
+    const lines = new Map(bill.orders.flatMap((o) => o.items).map((l) => [l.id, l]));
+    const assigned = new Map();
+    const payers = body.payers.map((p, i) => {
+      const items = Array.isArray(p?.items) ? p.items : [];
+      if (!items.length) throw bad(`Payer ${i + 1} has no items`);
+      const merged = new Map();
+      for (const it of items) {
+        const lineId = int(it?.line_id, `Payer ${i + 1} item`, { min: 1 });
+        const qty = int(it?.qty, `Payer ${i + 1} quantity`, { min: 1, max: 99 });
+        if (!lines.has(lineId)) throw bad(`Payer ${i + 1} has an item that is not on this bill`);
+        merged.set(lineId, (merged.get(lineId) || 0) + qty);
+        assigned.set(lineId, (assigned.get(lineId) || 0) + qty);
+      }
+      const name = text(p?.name, 'Payer name', { max: 30, required: false }) || `Payer ${i + 1}`;
+      const payerLines = [...merged].map(([lineId, qty]) => {
+        const l = lines.get(lineId);
+        return { line_id: lineId, item_name: l.item_name, qty, unit_price_paise: l.unit_price_at_order, line_total_paise: qty * l.unit_price_at_order };
+      });
+      return { payer_no: i + 1, name, items: payerLines, subtotal_paise: payerLines.reduce((s, l) => s + l.line_total_paise, 0) };
+    });
+    for (const [lineId, l] of lines) {
+      const got = assigned.get(lineId) || 0;
+      if (got !== l.qty) {
+        throw bad(`${l.item_name}: ${got} of ${l.qty} assigned. Every item must go to exactly one payer.`);
+      }
+    }
+    const gst = splitGst(payers.map((p) => p.subtotal_paise), bill.gst_paise);
+    payers.forEach((p, i) => { p.gst_paise = gst[i]; p.total_paise = p.subtotal_paise + gst[i]; });
+    return payers;
+  }
+
+  function closeTable(tableId, body = {}) {
     return write(async (t) => {
       await requireTable(t, tableId, t.forUpdate);
       const bill = await billFor(t, tableId);
@@ -345,12 +394,22 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       if (pending.length) {
         throw conflict(`Serve all orders before closing (${pending.map((o) => `#${o.id} ${o.status}`).join(', ')})`);
       }
+      const payers = readPayers(body || {}, bill);
       const stamp = now();
       const [{ id: billId }] = await t.query(`
         INSERT INTO ${T.bills} (table_id, subtotal, gst, total, closed_at)
         VALUES ($1, $2, $3, $4, $5) RETURNING id`, [tableId, rupees(bill.subtotal_paise), rupees(bill.gst_paise), rupees(bill.total_paise), stamp]);
       await t.query(`UPDATE ${T.orders} SET paid_at = $1, bill_id = $2 WHERE table_id = $3 AND paid_at IS NULL`, [stamp, billId, tableId]);
-      return { bill_id: billId, ...bill, paid_at: stamp };
+      for (const p of payers || []) {
+        const [{ id: payerId }] = await t.query(`
+          INSERT INTO ${T.bill_payers} (bill_id, payer_no, name, subtotal, gst, total)
+          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [billId, p.payer_no, p.name, rupees(p.subtotal_paise), rupees(p.gst_paise), rupees(p.total_paise)]);
+        for (const l of p.items) {
+          await t.query(`INSERT INTO ${T.bill_payer_items} (payer_id, order_item_id, qty) VALUES ($1, $2, $3)`, [payerId, l.line_id, l.qty]);
+        }
+      }
+      return { bill_id: billId, ...bill, paid_at: stamp, payers: payers || [] };
     });
   }
 
@@ -473,4 +532,4 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
   };
 }
 
-module.exports = { createStore, HttpError, billTotals, GST_RATE_PERCENT };
+module.exports = { createStore, HttpError, billTotals, splitGst, GST_RATE_PERCENT };

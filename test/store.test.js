@@ -447,3 +447,20 @@ test('[postgres] a database from before photos gets them (app and supabase/schem
     await db.close();
   }
 });
+
+// ---------- split bill by item ----------
+
+test('splitGst shares the GST so it always adds up to the bill total', () => {
+  const { splitGst } = require('../src/store');
+  assert.deepEqual(splitGst([12000, 12000], 1200), [600, 600]);
+  assert.deepEqual(splitGst([6000, 4000, 1000], 550), [300, 200, 50]);
+  // 3 x Rs 3.33 style shares: 5% of 999 paise = 49.95 each, bill GST round(2997 * 5%) = 150
+  const s = splitGst([999, 999, 999], 150);
+  assert.equal(s.reduce((a, b) => a + b, 0), 150);
+  assert.ok(s.every((g) => g === 49 || g === 50));
+  for (let i = 0; i < 200; i++) {
+    const subs = Array.from({ length: 2 + (i % 5) }, (_, k) => 100 + ((i * 37 + k * 91) % 5000));
+    const gst = Math.round((subs.reduce((a, b) => a + b, 0) * 5) / 100);
+    assert.equal(splitGst(subs, gst).reduce((a, b) => a + b, 0), gst);
+  }
+});

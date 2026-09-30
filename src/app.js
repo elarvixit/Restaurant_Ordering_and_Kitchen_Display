@@ -102,7 +102,7 @@ function createApi(db, { pins, push = false, onWrite = () => {}, now, tz, secret
     // Manager
     ['GET', /^\/api\/admin\/dashboard$/, MANAGER, ({ url }) => store.dashboard(url.searchParams.get('date'))],
     ['POST', /^\/api\/admin\/tables$/, MANAGER, ({ body }) => store.addTable(body), W],
-    ['POST', /^\/api\/admin\/tables\/(\d+)\/close$/, MANAGER, ({ p }) => store.closeTable(+p[1]), W],
+    ['POST', /^\/api\/admin\/tables\/(\d+)\/close$/, MANAGER, ({ p, body }) => store.closeTable(+p[1], body), W],
     ['POST', /^\/api\/admin\/categories$/, MANAGER, ({ body }) => store.saveCategory(null, body), W],
     ['PUT', /^\/api\/admin\/categories\/(\d+)$/, MANAGER, ({ p, body }) => store.saveCategory(+p[1], body), W],
     ['DELETE', /^\/api\/admin\/categories\/(\d+)$/, MANAGER, ({ p }) => store.archiveCategory(+p[1]), W],
