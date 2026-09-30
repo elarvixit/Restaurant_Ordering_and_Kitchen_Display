@@ -1,6 +1,6 @@
 'use strict';
 // Schema, upgrades and seed data, shared by SQLite and Postgres.
-// Money is integer paise; timestamps are integer milliseconds since the epoch.
+// Money is stored in rupees (NUMERIC(10,2), e.g. 480.00); timestamps are integer milliseconds since the epoch.
 // Table names come from src/tables.js (all prefixed babji_RestaurantKitchen_). On Supabase the same
 // schema can also be created by hand with supabase/schema.sql.
 
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS ${T.menu_items} (
   id           ${ID},
   category_id  INTEGER NOT NULL REFERENCES ${T.menu_categories}(id),
   name         TEXT    NOT NULL,
-  price_paise  INTEGER NOT NULL CHECK (price_paise >= 0),
+  price        NUMERIC(10, 2) NOT NULL CHECK (price >= 0),  -- rupees, e.g. 480.00
   is_veg       INTEGER NOT NULL DEFAULT 1 CHECK (is_veg IN (0, 1)),
   prep_minutes INTEGER NOT NULL DEFAULT 10 CHECK (prep_minutes >= 0),
   is_available INTEGER NOT NULL DEFAULT 1 CHECK (is_available IN (0, 1)),
@@ -39,9 +39,9 @@ CREATE TABLE IF NOT EXISTS ${T.tables} (
 CREATE TABLE IF NOT EXISTS ${T.bills} (
   id             ${ID},
   table_id       INTEGER NOT NULL REFERENCES ${T.tables}(id),
-  subtotal_paise INTEGER NOT NULL,
-  gst_paise      INTEGER NOT NULL,
-  total_paise    INTEGER NOT NULL,
+  subtotal       NUMERIC(12, 2) NOT NULL,  -- rupees, before GST
+  gst            NUMERIC(12, 2) NOT NULL,
+  total          NUMERIC(12, 2) NOT NULL,
   closed_at      ${TS} NOT NULL
 );
 
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS ${T.order_items} (
   item_name           TEXT    NOT NULL,
   qty                 INTEGER NOT NULL CHECK (qty > 0),
   note                TEXT    NOT NULL DEFAULT '',
-  unit_price_at_order INTEGER NOT NULL CHECK (unit_price_at_order >= 0),
+  unit_price_at_order NUMERIC(10, 2) NOT NULL CHECK (unit_price_at_order >= 0),  -- rupees
   added_at            ${TS} NOT NULL
 );
 
@@ -143,7 +143,7 @@ const SEED_EMOJI = new Map(SEED_MENU.flatMap(([, items]) => items.map((i) => [i[
 // Creates tables, upgrades older databases in place, and seeds an empty one.
 // Safe to run on every start. On Postgres an advisory lock stops two cold-starting
 // serverless instances from seeding twice.
-const SCHEMA_VERSION = 2; // bump when upgrade() learns something new
+const SCHEMA_VERSION = 3; // bump when upgrade() learns something new
 
 async function setup(db) {
   // Fast path for serverless cold starts: one query when the database is current.
@@ -195,7 +195,11 @@ async function columns(t, base) {
 
 // Schema 3: money moved from integer paise (48000) to rupees (480.00), and the columns lost
 // their _paise suffix. Existing rows are converted in place, inside the setup transaction.
+// Runs only for databases older than schema 3: SQLite keeps a column's declared INTEGER type
+// after the conversion, so the type alone cannot tell whether the values are still paise.
 async function moneyToRupees(t) {
+  const [prior] = await t.query(`SELECT num FROM ${T.app_state} WHERE name = 'schema'`);
+  if (prior && Number(prior.num) >= 3) return;
   const pg = t.dialect === 'postgres';
   const convert = async (base, from, to, precision) => {
     const cols = await columns(t, base);
@@ -230,8 +234,8 @@ async function seed(t) {
     const [{ id: catId }] = await t.query(
       `INSERT INTO ${T.menu_categories} (name, sort_order) VALUES ($1, $2) RETURNING id`, [category, i + 1]);
     for (const [name, rupees, veg, prep, emoji] of items) {
-      await t.query(`INSERT INTO ${T.menu_items} (category_id, name, price_paise, is_veg, prep_minutes, emoji)
-                     VALUES ($1, $2, $3, $4, $5, $6)`, [catId, name, rupees * 100, veg, prep, emoji]);
+      await t.query(`INSERT INTO ${T.menu_items} (category_id, name, price, is_veg, prep_minutes, emoji)
+                     VALUES ($1, $2, $3, $4, $5, $6)`, [catId, name, rupees, veg, prep, emoji]);
     }
   }
   for (let n = 1; n <= 12; n++) {
