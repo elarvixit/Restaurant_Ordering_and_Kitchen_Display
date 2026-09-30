@@ -4,6 +4,7 @@
 // Runs unchanged on SQLite (local) and Postgres (Vercel): see src/sql.js.
 
 const { DEFAULT_TZ, dayRange } = require('./time');
+const { T } = require('./tables');
 
 const GST_RATE_PERCENT = 5;
 const STATUSES = ['New', 'Preparing', 'Ready', 'Served'];
@@ -54,12 +55,12 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
   // so a screen never sees the new version before the data behind it is committed.
   const write = (fn) => db.tx(async (t) => {
     const result = await fn(t);
-    await t.query("UPDATE app_state SET num = num + 1 WHERE name = 'version'");
+    await t.query(`UPDATE ${T.app_state} SET num = num + 1 WHERE name = 'version'`);
     return result;
   });
 
   async function version() {
-    const [row] = await db.query("SELECT num FROM app_state WHERE name = 'version'");
+    const [row] = await db.query(`SELECT num FROM ${T.app_state} WHERE name = 'version'`);
     return row ? Number(row.num) : 0;
   }
 
@@ -67,11 +68,11 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
 
   async function getMenu() {
     const categories = await db.query(`
-      SELECT id, name, sort_order FROM menu_categories
+      SELECT id, name, sort_order FROM ${T.menu_categories}
       WHERE archived_at IS NULL ORDER BY sort_order, name`);
     const items = await db.query(`
       SELECT id, category_id, name, price_paise, is_veg, prep_minutes, is_available, emoji
-      FROM menu_items WHERE archived_at IS NULL ORDER BY name`);
+      FROM ${T.menu_items} WHERE archived_at IS NULL ORDER BY name`);
     return { categories, items };
   }
 
@@ -80,11 +81,11 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
     const sort = body.sort_order === undefined ? null : int(body.sort_order, 'Sort order', { min: 0, max: 999 });
     return write(async (t) => {
       if (id == null) {
-        const [{ n }] = await t.query('SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM menu_categories');
-        const [row] = await t.query('INSERT INTO menu_categories (name, sort_order) VALUES ($1, $2) RETURNING id', [name, sort ?? Number(n)]);
+        const [{ n }] = await t.query(`SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM ${T.menu_categories}`);
+        const [row] = await t.query(`INSERT INTO ${T.menu_categories} (name, sort_order) VALUES ($1, $2) RETURNING id`, [name, sort ?? Number(n)]);
         return { id: row.id };
       }
-      const rows = await t.query(`UPDATE menu_categories SET name = $1, sort_order = COALESCE($2, sort_order)
+      const rows = await t.query(`UPDATE ${T.menu_categories} SET name = $1, sort_order = COALESCE($2, sort_order)
                                   WHERE id = $3 AND archived_at IS NULL RETURNING id`, [name, sort, id]);
       if (!rows.length) throw notFound('Category not found');
       return { id };
@@ -93,9 +94,9 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
 
   function archiveCategory(id) {
     return write(async (t) => {
-      const [{ n }] = await t.query('SELECT COUNT(*) AS n FROM menu_items WHERE category_id = $1 AND archived_at IS NULL', [id]);
+      const [{ n }] = await t.query(`SELECT COUNT(*) AS n FROM ${T.menu_items} WHERE category_id = $1 AND archived_at IS NULL`, [id]);
       if (Number(n) > 0) throw conflict(`Move or delete the ${n} item(s) in this category first`);
-      const rows = await t.query('UPDATE menu_categories SET archived_at = $1 WHERE id = $2 AND archived_at IS NULL RETURNING id', [now(), id]);
+      const rows = await t.query(`UPDATE ${T.menu_categories} SET archived_at = $1 WHERE id = $2 AND archived_at IS NULL RETURNING id`, [now(), id]);
       if (!rows.length) throw notFound('Category not found');
       return { id };
     });
@@ -104,7 +105,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
   async function readItemBody(t, body, existing = {}) {
     const merged = { ...existing, ...body };
     const categoryId = int(merged.category_id, 'Category', { min: 1 });
-    const [cat] = await t.query('SELECT id FROM menu_categories WHERE id = $1 AND archived_at IS NULL', [categoryId]);
+    const [cat] = await t.query(`SELECT id FROM ${T.menu_categories} WHERE id = $1 AND archived_at IS NULL`, [categoryId]);
     if (!cat) throw bad('Category does not exist');
     return {
       category_id: categoryId,
@@ -122,17 +123,17 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       if (id == null) {
         const v = await readItemBody(t, body);
         const [row] = await t.query(`
-          INSERT INTO menu_items (category_id, name, price_paise, is_veg, prep_minutes, is_available, emoji)
+          INSERT INTO ${T.menu_items} (category_id, name, price_paise, is_veg, prep_minutes, is_available, emoji)
           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
           [v.category_id, v.name, v.price_paise, v.is_veg, v.prep_minutes, v.is_available, v.emoji]);
         return { id: row.id };
       }
-      const [existing] = await t.query(`SELECT * FROM menu_items WHERE id = $1 AND archived_at IS NULL${t.forUpdate}`, [id]);
+      const [existing] = await t.query(`SELECT * FROM ${T.menu_items} WHERE id = $1 AND archived_at IS NULL${t.forUpdate}`, [id]);
       if (!existing) throw notFound('Item not found');
       const v = await readItemBody(t, body, existing);
       // Only the menu row changes. Placed orders keep their own name/price snapshot.
       await t.query(`
-        UPDATE menu_items SET category_id = $1, name = $2, price_paise = $3, is_veg = $4,
+        UPDATE ${T.menu_items} SET category_id = $1, name = $2, price_paise = $3, is_veg = $4,
                prep_minutes = $5, is_available = $6, emoji = $7
         WHERE id = $8`, [v.category_id, v.name, v.price_paise, v.is_veg, v.prep_minutes, v.is_available, v.emoji, id]);
       return { id };
@@ -141,7 +142,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
 
   function archiveItem(id) {
     return write(async (t) => {
-      const rows = await t.query(`UPDATE menu_items SET archived_at = $1, is_available = 0
+      const rows = await t.query(`UPDATE ${T.menu_items} SET archived_at = $1, is_available = 0
                                   WHERE id = $2 AND archived_at IS NULL RETURNING id`, [now(), id]);
       if (!rows.length) throw notFound('Item not found');
       return { id };
@@ -151,7 +152,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
   // ---------- tables & orders ----------
 
   async function requireTable(q, tableId, lock = '') {
-    const [t] = await q.query(`SELECT id, number, seats FROM tables WHERE id = $1${lock}`, [tableId]);
+    const [t] = await q.query(`SELECT id, number, seats FROM ${T.tables} WHERE id = $1${lock}`, [tableId]);
     if (!t) throw notFound('Table not found');
     return t;
   }
@@ -163,9 +164,9 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
              COALESCE(SUM(oi.qty * oi.unit_price_at_order), 0)             AS open_subtotal_paise,
              MIN(o.placed_at)                                              AS first_order_at,
              COUNT(DISTINCT CASE WHEN o.status <> 'Served' THEN o.id END)  AS unserved_orders
-      FROM tables t
-      LEFT JOIN orders o       ON o.table_id = t.id AND o.paid_at IS NULL
-      LEFT JOIN order_items oi ON oi.order_id = o.id
+      FROM ${T.tables} t
+      LEFT JOIN ${T.orders} o       ON o.table_id = t.id AND o.paid_at IS NULL
+      LEFT JOIN ${T.order_items} oi ON oi.order_id = o.id
       GROUP BY t.id, t.number, t.seats
       ORDER BY t.number`);
   }
@@ -174,9 +175,9 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
     const number = int(body.number, 'Table number', { min: 1, max: 999 });
     const seats = body.seats === undefined ? 4 : int(body.seats, 'Seats', { min: 1, max: 30 });
     return write(async (t) => {
-      const [dupe] = await t.query('SELECT 1 AS x FROM tables WHERE number = $1', [number]);
+      const [dupe] = await t.query(`SELECT 1 AS x FROM ${T.tables} WHERE number = $1`, [number]);
       if (dupe) throw conflict(`Table ${number} already exists`);
-      const [row] = await t.query('INSERT INTO tables (number, seats) VALUES ($1, $2) RETURNING id', [number, seats]);
+      const [row] = await t.query(`INSERT INTO ${T.tables} (number, seats) VALUES ($1, $2) RETURNING id`, [number, seats]);
       return { id: row.id };
     });
   }
@@ -187,7 +188,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
     const ids = orders.map((o) => o.id);
     const lines = await q.query(`
       SELECT id, order_id, item_id, item_name, qty, note, unit_price_at_order, added_at
-      FROM order_items WHERE order_id IN (${list(ids.length)})
+      FROM ${T.order_items} WHERE order_id IN (${list(ids.length)})
       ORDER BY added_at, id`, ids);
     const byOrder = new Map(ids.map((id) => [id, []]));
     for (const l of lines) byOrder.get(l.order_id).push(l);
@@ -210,7 +211,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
   async function billFor(q, tableId) {
     const table = await requireTable(q, tableId);
     const orders = await hydrate(q, await q.query(`
-      SELECT ${ORDER_COLS} FROM orders o JOIN tables t ON t.id = o.table_id
+      SELECT ${ORDER_COLS} FROM ${T.orders} o JOIN ${T.tables} t ON t.id = o.table_id
       WHERE o.table_id = $1 AND o.paid_at IS NULL ORDER BY o.placed_at, o.id`, [tableId]));
     const subtotal = orders.reduce((s, o) => s + o.subtotal_paise, 0);
     return {
@@ -243,7 +244,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       await requireTable(t, tableId, t.forUpdate);
       const ids = [...new Set(lines.map((l) => l.item_id))];
       const menuRows = await t.query(`
-        SELECT id, name, price_paise, is_available FROM menu_items
+        SELECT id, name, price_paise, is_available FROM ${T.menu_items}
         WHERE archived_at IS NULL AND id IN (${list(ids.length)})`, ids);
       const menu = new Map(menuRows.map((m) => [m.id, m]));
       const missing = ids.filter((id) => !menu.has(id));
@@ -256,24 +257,24 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       }
 
       const stamp = now();
-      let [order] = await t.query(`SELECT id FROM orders WHERE table_id = $1 AND paid_at IS NULL AND status = 'New'
+      let [order] = await t.query(`SELECT id FROM ${T.orders} WHERE table_id = $1 AND paid_at IS NULL AND status = 'New'
                                    ORDER BY placed_at DESC LIMIT 1`, [tableId]);
       const appended = !!order;
       if (!order) {
-        [order] = await t.query("INSERT INTO orders (table_id, status, placed_at) VALUES ($1, 'New', $2) RETURNING id", [tableId, stamp]);
+        [order] = await t.query(`INSERT INTO ${T.orders} (table_id, status, placed_at) VALUES ($1, 'New', $2) RETURNING id`, [tableId, stamp]);
       }
 
       for (const l of lines) {
         const m = menu.get(l.item_id);
         // Same item + same note already on this New order: bump qty instead of a duplicate line.
         // The snapshot price must match too, otherwise a mid-day price change would be merged away.
-        const [same] = await t.query(`SELECT id, qty FROM order_items
+        const [same] = await t.query(`SELECT id, qty FROM ${T.order_items}
                                       WHERE order_id = $1 AND item_id = $2 AND note = $3 AND unit_price_at_order = $4`,
           [order.id, m.id, l.note, m.price_paise]);
         if (same) {
-          await t.query('UPDATE order_items SET qty = $1 WHERE id = $2', [Math.min(same.qty + l.qty, 99), same.id]);
+          await t.query(`UPDATE ${T.order_items} SET qty = $1 WHERE id = $2`, [Math.min(same.qty + l.qty, 99), same.id]);
         } else {
-          await t.query(`INSERT INTO order_items (order_id, item_id, item_name, qty, note, unit_price_at_order, added_at)
+          await t.query(`INSERT INTO ${T.order_items} (order_id, item_id, item_name, qty, note, unit_price_at_order, added_at)
                          VALUES ($1, $2, $3, $4, $5, $6, $7)`, [order.id, m.id, m.name, l.qty, l.note, m.price_paise, stamp]);
         }
       }
@@ -289,17 +290,17 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       // Lock the order so the kitchen can't start it halfway through this edit.
       const [line] = await t.query(`
         SELECT oi.id, oi.order_id, o.status, o.table_id, o.paid_at
-        FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE oi.id = $1${t.forUpdate}`, [lineId]);
+        FROM ${T.order_items} oi JOIN ${T.orders} o ON o.id = oi.order_id WHERE oi.id = $1${t.forUpdate}`, [lineId]);
       if (!line || line.table_id !== tableId || line.paid_at != null) throw notFound('Order line not found');
       if (line.status !== 'New') {
         throw conflict(`This order is already ${line.status.toLowerCase()} and can no longer be changed`);
       }
       if (qty === 0) {
-        await t.query('DELETE FROM order_items WHERE id = $1', [lineId]);
-        const [{ n }] = await t.query('SELECT COUNT(*) AS n FROM order_items WHERE order_id = $1', [line.order_id]);
-        if (Number(n) === 0) await t.query('DELETE FROM orders WHERE id = $1', [line.order_id]);
+        await t.query(`DELETE FROM ${T.order_items} WHERE id = $1`, [lineId]);
+        const [{ n }] = await t.query(`SELECT COUNT(*) AS n FROM ${T.order_items} WHERE order_id = $1`, [line.order_id]);
+        if (Number(n) === 0) await t.query(`DELETE FROM ${T.orders} WHERE id = $1`, [line.order_id]);
       } else {
-        await t.query('UPDATE order_items SET qty = $1, note = COALESCE($2, note) WHERE id = $3', [qty, note, lineId]);
+        await t.query(`UPDATE ${T.order_items} SET qty = $1, note = COALESCE($2, note) WHERE id = $3`, [qty, note, lineId]);
       }
       return { ok: true };
     });
@@ -307,7 +308,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
 
   async function kitchenOrders() {
     return hydrate(db, await db.query(`
-      SELECT ${ORDER_COLS} FROM orders o JOIN tables t ON t.id = o.table_id
+      SELECT ${ORDER_COLS} FROM ${T.orders} o JOIN ${T.tables} t ON t.id = o.table_id
       WHERE o.status <> 'Served'
       ORDER BY o.placed_at, o.id`));
   }
@@ -321,10 +322,10 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
     const next = NEXT_STATUS[from];
     if (!next) throw conflict('Order is already served');
     return write(async (t) => {
-      const rows = await t.query(`UPDATE orders SET status = $1, ${STAMP_COLUMN[next]} = $2
+      const rows = await t.query(`UPDATE ${T.orders} SET status = $1, ${STAMP_COLUMN[next]} = $2
                                   WHERE id = $3 AND status = $4 RETURNING id`, [next, now(), orderId, from]);
       if (rows.length) return { id: orderId, status: next };
-      const [o] = await t.query('SELECT status FROM orders WHERE id = $1', [orderId]);
+      const [o] = await t.query(`SELECT status FROM ${T.orders} WHERE id = $1`, [orderId]);
       if (!o) throw notFound('Order not found');
       throw conflict(`Order is already ${o.status}`, { status: o.status });
     });
@@ -341,9 +342,9 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       }
       const stamp = now();
       const [{ id: billId }] = await t.query(`
-        INSERT INTO bills (table_id, subtotal_paise, gst_paise, total_paise, closed_at)
+        INSERT INTO ${T.bills} (table_id, subtotal_paise, gst_paise, total_paise, closed_at)
         VALUES ($1, $2, $3, $4, $5) RETURNING id`, [tableId, bill.subtotal_paise, bill.gst_paise, bill.total_paise, stamp]);
-      await t.query('UPDATE orders SET paid_at = $1, bill_id = $2 WHERE table_id = $3 AND paid_at IS NULL', [stamp, billId, tableId]);
+      await t.query(`UPDATE ${T.orders} SET paid_at = $1, bill_id = $2 WHERE table_id = $3 AND paid_at IS NULL`, [stamp, billId, tableId]);
       return { bill_id: billId, ...bill, paid_at: stamp };
     });
   }
@@ -361,7 +362,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       SELECT COUNT(DISTINCT o.id)                              AS orders,
              COALESCE(SUM(oi.qty * oi.unit_price_at_order), 0) AS revenue_paise,
              COALESCE(SUM(oi.qty), 0)                          AS items_sold
-      FROM orders o JOIN order_items oi ON oi.order_id = o.id
+      FROM ${T.orders} o JOIN ${T.order_items} oi ON oi.order_id = o.id
       WHERE o.placed_at >= $1 AND o.placed_at < $2`, [start, end]);
 
     // Prep time is New -> Ready, counted on the day the order became ready.
@@ -369,14 +370,14 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       SELECT COUNT(*)                   AS orders,
              AVG(ready_at - placed_at)  AS avg_ms,
              MAX(ready_at - placed_at)  AS max_ms
-      FROM orders
+      FROM ${T.orders}
       WHERE ready_at IS NOT NULL AND ready_at >= $1 AND ready_at < $2`, [start, end]);
 
     const [collected] = await db.query(`
       SELECT COUNT(*)                        AS bills,
              COALESCE(SUM(total_paise), 0)   AS total_paise,
              COALESCE(SUM(gst_paise), 0)     AS gst_paise
-      FROM bills WHERE closed_at >= $1 AND closed_at < $2`, [start, end]);
+      FROM ${T.bills} WHERE closed_at >= $1 AND closed_at < $2`, [start, end]);
 
     // Grouped by item_id, not name, so a rename mid-day does not split an item in two.
     const topItems = await db.query(`
@@ -387,9 +388,9 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
              m.category_id                             AS category_id,
              SUM(oi.qty)                               AS qty,
              SUM(oi.qty * oi.unit_price_at_order)      AS revenue_paise
-      FROM order_items oi
-      JOIN orders o          ON o.id = oi.order_id
-      LEFT JOIN menu_items m ON m.id = oi.item_id
+      FROM ${T.order_items} oi
+      JOIN ${T.orders} o          ON o.id = oi.order_id
+      LEFT JOIN ${T.menu_items} m ON m.id = oi.item_id
       WHERE o.placed_at >= $1 AND o.placed_at < $2
       GROUP BY oi.item_id, m.name, m.is_veg, m.emoji, m.category_id
       ORDER BY qty DESC, revenue_paise DESC, name
@@ -400,7 +401,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       SELECT ((o.placed_at + $3) / 3600000) % 24     AS hour,
              COUNT(DISTINCT o.id)                   AS orders,
              SUM(oi.qty * oi.unit_price_at_order)   AS revenue_paise
-      FROM orders o JOIN order_items oi ON oi.order_id = o.id
+      FROM ${T.orders} o JOIN ${T.order_items} oi ON oi.order_id = o.id
       WHERE o.placed_at >= $1 AND o.placed_at < $2
       GROUP BY 1
       ORDER BY 1`, [start, end, offset]);
@@ -411,8 +412,8 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       revenue_paise: Number(byHourMap.get(h)?.revenue_paise ?? 0),
     }));
 
-    const live = await db.query("SELECT status, COUNT(*) AS n FROM orders WHERE status <> 'Served' GROUP BY status");
-    const [{ n: openTables }] = await db.query('SELECT COUNT(DISTINCT table_id) AS n FROM orders WHERE paid_at IS NULL');
+    const live = await db.query(`SELECT status, COUNT(*) AS n FROM ${T.orders} WHERE status <> 'Served' GROUP BY status`);
+    const [{ n: openTables }] = await db.query(`SELECT COUNT(DISTINCT table_id) AS n FROM ${T.orders} WHERE paid_at IS NULL`);
 
     const orders = Number(sales.orders), revenue = Number(sales.revenue_paise);
     return {
@@ -439,23 +440,23 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
   // ---------- PIN lockout (shared by every server instance) ----------
 
   async function loginBlocked(ip) {
-    const [row] = await db.query('SELECT until_at FROM login_failures WHERE ip = $1', [ip]);
+    const [row] = await db.query(`SELECT until_at FROM ${T.login_failures} WHERE ip = $1`, [ip]);
     return !!row && Number(row.until_at) > now();
   }
 
   async function recordLogin(ip, ok) {
     if (ok) {
-      await db.query('DELETE FROM login_failures WHERE ip = $1', [ip]);
+      await db.query(`DELETE FROM ${T.login_failures} WHERE ip = $1`, [ip]);
       return;
     }
     // 5 wrong PINs in a row -> locked for a minute. A failure recorded while until_at is set
     // means the lock has expired (locked attempts are refused before they get here): start over.
     await db.query(`
-      INSERT INTO login_failures (ip, failures, until_at) VALUES ($1, 1, 0)
+      INSERT INTO ${T.login_failures} (ip, failures, until_at) VALUES ($1, 1, 0)
       ON CONFLICT (ip) DO UPDATE SET
-        failures = CASE WHEN login_failures.until_at > 0 THEN 1 ELSE login_failures.failures + 1 END,
-        until_at = CASE WHEN login_failures.until_at > 0 THEN 0
-                        WHEN login_failures.failures + 1 >= 5 THEN CAST($2 AS BIGINT)
+        failures = CASE WHEN ${T.login_failures}.until_at > 0 THEN 1 ELSE ${T.login_failures}.failures + 1 END,
+        until_at = CASE WHEN ${T.login_failures}.until_at > 0 THEN 0
+                        WHEN ${T.login_failures}.failures + 1 >= 5 THEN CAST($2 AS BIGINT)
                         ELSE 0 END`, [ip, now() + 60_000]);
   }
 
