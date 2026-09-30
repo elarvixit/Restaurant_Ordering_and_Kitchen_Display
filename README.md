@@ -32,7 +32,8 @@ npm test               # 30 tests; the business rules run on both SQLite and Pos
   The kitchen starts dark, and the others follow the device's system setting until you pick one.
 
 Environment variables: `PORT`, `KITCHEN_PIN`, `MANAGER_PIN`, `DB_FILE` (default `data/restaurant.db`),
-`DATABASE_URL` (use Postgres instead of SQLite), `RESTAURANT_TZ` (default `Asia/Kolkata`: sets what "today" and each
+`DATABASE_URL` (use Postgres instead of SQLite), `SUPABASE_PUBLISHABLE_KEY` (WebSocket push through Supabase Realtime;
+`SUPABASE_URL` optional, otherwise read from `DATABASE_URL`), `RESTAURANT_TZ` (default `Asia/Kolkata`: sets what "today" and each
 hour mean on the dashboard), `SESSION_SECRET` (signs PIN logins; derived from the PINs if unset).
 The server prints its LAN address so tablets and phones on the same Wi-Fi can open the screens.
 
@@ -50,7 +51,9 @@ project with other apps.
 2. **Get the connection string:** in Supabase click **Connect → Transaction pooler** (port **6543**) and copy the
    URI, replacing `[YOUR-PASSWORD]` with the database password.
 3. In Vercel **Settings → Environment Variables** add `DATABASE_URL` (that URI), `KITCHEN_PIN` and `MANAGER_PIN`
-   (your own PINs) and `SESSION_SECRET` (any long random text), for all environments.
+   (your own PINs), `SESSION_SECRET` (any long random text) and `SUPABASE_PUBLISHABLE_KEY` (Supabase → Project
+   Settings → API Keys → publishable key, for instant WebSocket updates), for all environments. In Supabase →
+   Realtime → Settings, keep public channels allowed.
 4. **Deployments → ⋯ → Redeploy** (or push any commit).
 5. Optional demo data: locally run `$env:DATABASE_URL="postgresql://..."; npm run demo` (PowerShell).
 
@@ -95,6 +98,7 @@ src/app.js          the JSON API: routes, roles, signed PIN tokens, lockout
 src/store.js        all business rules and dashboard queries (same SQL on SQLite and Postgres)
 src/sql.js          database adapters: SQLite (local), Supabase Postgres (Vercel), PGlite (tests)
 src/tables.js       every table name (babji_RestaurantKitchen_ prefix)
+src/realtime.js     WebSocket push: Supabase Realtime settings and the broadcast sent after each write
 src/schema.js       tables, indexes, upgrades of older databases, seed menu
 src/time.js         restaurant time zone: "today" and hour buckets
 public/             customer / kitchen / manager pages (vanilla JS, one stylesheet)
@@ -119,8 +123,13 @@ Derived state is never stored twice. For example, a table is "occupied" exactly 
   data, so clients refetch through the normal API: one read path, and the stream needs no auth. If the stream drops,
   the client polls `/api/version` every 3 s until it reconnects. Measured: order → kitchen in about **15 ms**.
 * **On Vercel** each request may hit a different short-lived function, so none can hold a push connection per
-  screen. `/api/version` reports `push: false` and screens poll it every 2 s (a single tiny query).
-  Measured on a Postgres simulation of the deployment: order → kitchen in **1.75 s**.
+  screen. Instead every write is announced over **WebSocket through Supabase Realtime** (`src/realtime.js`): the
+  function sends one Broadcast message (`{ version }`, no order data) before it answers, and every screen that has
+  joined the `babji_RestaurantKitchen_live` channel refetches at once. Measured end to end against a local stand-in
+  of Supabase Realtime: order → kitchen in about **0.1 s**. This needs `SUPABASE_PUBLISHABLE_KEY` (the project's
+  public key); the project URL is worked out from `DATABASE_URL`. Without the key, or while the socket is down,
+  screens poll `/api/version` every 2 s, and they reconnect by themselves. A 20 s check also runs while connected,
+  in case a broadcast is ever lost.
 * After a reconnect, or when a sleeping tab wakes up, the client refreshes everything in case it missed a change.
   The badge in each header shows `Live`, `Reconnecting…` or `Offline`.
 * Kitchen timers tick locally every second, using a server-clock offset read from the `X-Server-Now` header,
@@ -141,6 +150,19 @@ Money is stored in **rupees** with two decimals (`NUMERIC(10,2)`: `price`, `unit
 (fields ending in `_paise`) so totals and GST, `round(subtotal × 5 / 100)`, are exact; `src/store.js` converts at
 the database boundary. Databases from before this change (money in `*_paise` columns) are converted automatically on
 start, and `supabase/schema.sql` does the same conversion if run again.
+
+### Split bill by item
+On the manager's bill panel, **✂ Split bill** lets 2 to 10 people pay for their own items: each unit of every line is
+tapped to one payer (3 naan can be 2 + 1). The server checks every unit is assigned exactly once, then closes the
+bill in one transaction and stores each payer in `bill_payers` (subtotal, GST, total) and `bill_payer_items` (which
+units). GST is shared so the payers add up to the bill to the paisa: 5% of each payer's subtotal rounded down, and
+the leftover paise go to the largest remainders. Afterwards each payer gets a receipt, which can be printed.
+
+### Kitchen sound alerts
+A new ticket plays three rising notes twice, items added to a New ticket play two notes, and a ticket nobody has
+started for 2 minutes plays a low double beep (and shakes) once a minute until it is started. Browsers block sound
+until the screen has been tapped once, so the sound button turns into a pulsing **Tap to turn on sound** when that
+happens (for example after the tablet reloads with the PIN still remembered).
 
 ### Business rules
 * **Add to an open order:** new items join the table's latest order while it is still `New`. Once the kitchen
@@ -163,10 +185,9 @@ DST-safe, `src/time.js`). Vercel runs in UTC, so this matters:
 * Order lines are loaded for many orders in one `IN (…)` query, so there are no N+1 queries.
 
 ### Stretch goals
-* ✅ Server push (SSE, one-way push, which is all this app needs) when self-hosted, with polling as fallback;
-  2-second polling on Vercel, where serverless functions can't hold push connections
-* ✅ Kitchen sound alert on a new order or on items added to a New order (Web Audio, toggle in the header)
-* ⬜ Split bill by item: not built
+* ✅ WebSocket push on Vercel through Supabase Realtime (SSE when self-hosted), with 2-second polling as fallback
+* ✅ Kitchen sound alerts: new order, items added, reminder for unstarted tickets, and a tap-to-enable prompt
+* ✅ Split bill by item across 2 to 10 payers, with per-payer GST and printable receipts
 
 ## API summary
 
@@ -180,7 +201,7 @@ PATCH /api/tables/:id/lines/:lineId {qty}           (only while order is New)
 GET  /api/kitchen/orders                            [kitchen]
 POST /api/orders/:id/advance {from}                 [kitchen]
 GET  /api/admin/dashboard?date=YYYY-MM-DD           [manager]
-POST /api/admin/tables/:id/close                    [manager]
+POST /api/admin/tables/:id/close  {payers?}          [manager]  payers: [{name, items: [{line_id, qty}]}] splits by item
 POST|PUT|DELETE /api/admin/categories[/:id]         [manager]
 POST|PUT|DELETE /api/admin/items[/:id]              [manager]
 POST /api/admin/tables {number, seats}              [manager]
