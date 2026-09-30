@@ -14,7 +14,6 @@
     "push": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/auto-push.ps1"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.1.0",
     "pg": "^8.23.0"
   },
   "devDependencies": {

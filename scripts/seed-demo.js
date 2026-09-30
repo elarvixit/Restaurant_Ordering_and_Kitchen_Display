@@ -1,7 +1,7 @@
 'use strict';
 // Fills today with realistic, already-finished orders so the dashboard has data.
 // Goes through the same store functions as the live app. Run: npm run demo
-// Local SQLite by default; with DATABASE_URL set it fills that Postgres (e.g. your Vercel/Neon DB):
+// Local SQLite by default; with DATABASE_URL set it fills that Postgres (e.g. your Supabase DB):
 //   PowerShell:  $env:DATABASE_URL="postgresql://..."; npm run demo
 
 const path = require('node:path');

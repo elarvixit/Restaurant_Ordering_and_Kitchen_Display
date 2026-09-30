@@ -1,11 +1,12 @@
 'use strict';
 // Business-rule tests. The whole suite runs twice: on SQLite (local mode) and on
-// Postgres via PGlite (the SQL that runs on Vercel/Neon). Run: npm test
+// Postgres via PGlite (the SQL that runs on Vercel/Supabase). Run: npm test
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { sqliteDb, pgliteDb, postgresDb } = require('../src/sql');
 const { setup: setupSchema } = require('../src/schema');
 const { createStore } = require('../src/store');
+const { T } = require('../src/tables');
 
 const MIN = 60_000;
 
@@ -34,7 +35,7 @@ for (const [engine, makeDb] of ENGINES) {
     const db = await makeDb();
     await setupSchema(db);
     const store = createStore(db, { now: () => clock, tz: 'UTC' });
-    const item = async (name) => (await db.query('SELECT * FROM menu_items WHERE name = $1', [name]))[0];
+    const item = async (name) => (await db.query(`SELECT * FROM ${T.menu_items} WHERE name = $1`, [name]))[0];
     return { db, store, item, advance: (ms) => { clock += ms; } };
   }
 
@@ -110,7 +111,7 @@ for (const [engine, makeDb] of ENGINES) {
     await store.closeTable(4);
     assert.equal((await store.getTableBill(4)).orders.length, 0);
     assert.equal(Number((await store.listTables()).find((t) => t.id === 4).open_orders), 0);
-    const [o] = await db.query('SELECT paid_at FROM orders WHERE id = $1', [order_id]);
+    const [o] = await db.query(`SELECT paid_at FROM ${T.orders} WHERE id = $1`, [order_id]);
     assert.ok(o.paid_at);
     await db.close();
   });
@@ -145,7 +146,7 @@ for (const [engine, makeDb] of ENGINES) {
     await setupSchema(db);
     // 20:00 UTC on 29 Sep = 01:30 on 30 Sep in India.
     const store = createStore(db, { now: () => Date.UTC(2026, 8, 29, 20, 0), tz: 'Asia/Kolkata' });
-    const [chai] = await db.query("SELECT id FROM menu_items WHERE name = 'Masala Chai'");
+    const [chai] = await db.query(`SELECT id FROM ${T.menu_items} WHERE name = 'Masala Chai'`);
     await store.placeOrder(1, { items: [{ item_id: chai.id, qty: 1 }] });
     const d = await store.dashboard();
     assert.equal(d.date, '2026-09-30');
@@ -193,7 +194,7 @@ for (const [engine, makeDb] of ENGINES) {
     const db = await makeDb();
     await setupSchema(db);
     await setupSchema(db);
-    const [{ n }] = await db.query('SELECT COUNT(*) AS n FROM menu_items');
+    const [{ n }] = await db.query(`SELECT COUNT(*) AS n FROM ${T.menu_items}`);
     assert.equal(Number(n), 18, 'menu not seeded twice');
     await db.close();
   });
@@ -215,10 +216,10 @@ test('[sqlite] a database from before pictures existed is upgraded in place', as
 
   const db = sqliteDb(file);
   await setupSchema(db);
-  const rows = await db.query('SELECT name, emoji FROM menu_items ORDER BY id');
+  const rows = await db.query(`SELECT name, emoji FROM ${T.menu_items} ORDER BY id`);
   assert.equal(rows.length, 2, 'no rows lost, and no seed added on top');
   assert.equal(rows[0].emoji, '☕', 'known dish gets its picture');
   assert.equal(rows[1].emoji, '', 'unknown dish keeps the default');
-  assert.ok((await db.query("SELECT num FROM app_state WHERE name = 'version'"))[0]);
+  assert.ok((await db.query(`SELECT num FROM ${T.app_state} WHERE name = 'version'`))[0]);
   await db.close();
 });
