@@ -6,6 +6,11 @@
 const { DEFAULT_TZ, dayRange } = require('./time');
 const { T } = require('./tables');
 
+// The database stores money in rupees (NUMERIC, e.g. 480.00). The code and the API work in whole
+// paise so GST and totals are exact integer maths: amounts are converted only at the SQL boundary.
+const paise = (expr) => `CAST(ROUND((${expr}) * 100) AS BIGINT)`;
+const rupees = (p) => p / 100;
+
 const GST_RATE_PERCENT = 5;
 const STATUSES = ['New', 'Preparing', 'Ready', 'Served'];
 const NEXT_STATUS = { New: 'Preparing', Preparing: 'Ready', Ready: 'Served' };
@@ -71,7 +76,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       SELECT id, name, sort_order FROM ${T.menu_categories}
       WHERE archived_at IS NULL ORDER BY sort_order, name`);
     const items = await db.query(`
-      SELECT id, category_id, name, price_paise, is_veg, prep_minutes, is_available, emoji
+      SELECT id, category_id, name, ${paise('price')} AS price_paise, is_veg, prep_minutes, is_available, emoji
       FROM ${T.menu_items} WHERE archived_at IS NULL ORDER BY name`);
     return { categories, items };
   }
@@ -123,19 +128,19 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       if (id == null) {
         const v = await readItemBody(t, body);
         const [row] = await t.query(`
-          INSERT INTO ${T.menu_items} (category_id, name, price_paise, is_veg, prep_minutes, is_available, emoji)
+          INSERT INTO ${T.menu_items} (category_id, name, price, is_veg, prep_minutes, is_available, emoji)
           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-          [v.category_id, v.name, v.price_paise, v.is_veg, v.prep_minutes, v.is_available, v.emoji]);
+          [v.category_id, v.name, rupees(v.price_paise), v.is_veg, v.prep_minutes, v.is_available, v.emoji]);
         return { id: row.id };
       }
-      const [existing] = await t.query(`SELECT * FROM ${T.menu_items} WHERE id = $1 AND archived_at IS NULL${t.forUpdate}`, [id]);
+      const [existing] = await t.query(`SELECT *, ${paise('price')} AS price_paise FROM ${T.menu_items} WHERE id = $1 AND archived_at IS NULL${t.forUpdate}`, [id]);
       if (!existing) throw notFound('Item not found');
       const v = await readItemBody(t, body, existing);
       // Only the menu row changes. Placed orders keep their own name/price snapshot.
       await t.query(`
-        UPDATE ${T.menu_items} SET category_id = $1, name = $2, price_paise = $3, is_veg = $4,
+        UPDATE ${T.menu_items} SET category_id = $1, name = $2, price = $3, is_veg = $4,
                prep_minutes = $5, is_available = $6, emoji = $7
-        WHERE id = $8`, [v.category_id, v.name, v.price_paise, v.is_veg, v.prep_minutes, v.is_available, v.emoji, id]);
+        WHERE id = $8`, [v.category_id, v.name, rupees(v.price_paise), v.is_veg, v.prep_minutes, v.is_available, v.emoji, id]);
       return { id };
     });
   }
@@ -161,7 +166,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
     return db.query(`
       SELECT t.id, t.number, t.seats,
              COUNT(DISTINCT o.id)                                          AS open_orders,
-             COALESCE(SUM(oi.qty * oi.unit_price_at_order), 0)             AS open_subtotal_paise,
+             ${paise('COALESCE(SUM(oi.qty * oi.unit_price_at_order), 0)')} AS open_subtotal_paise,
              MIN(o.placed_at)                                              AS first_order_at,
              COUNT(DISTINCT CASE WHEN o.status <> 'Served' THEN o.id END)  AS unserved_orders
       FROM ${T.tables} t
@@ -187,7 +192,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
     if (!orders.length) return [];
     const ids = orders.map((o) => o.id);
     const lines = await q.query(`
-      SELECT id, order_id, item_id, item_name, qty, note, unit_price_at_order, added_at
+      SELECT id, order_id, item_id, item_name, qty, note, ${paise('unit_price_at_order')} AS unit_price_at_order, added_at
       FROM ${T.order_items} WHERE order_id IN (${list(ids.length)})
       ORDER BY added_at, id`, ids);
     const byOrder = new Map(ids.map((id) => [id, []]));
@@ -244,7 +249,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       await requireTable(t, tableId, t.forUpdate);
       const ids = [...new Set(lines.map((l) => l.item_id))];
       const menuRows = await t.query(`
-        SELECT id, name, price_paise, is_available FROM ${T.menu_items}
+        SELECT id, name, ${paise('price')} AS price_paise, is_available FROM ${T.menu_items}
         WHERE archived_at IS NULL AND id IN (${list(ids.length)})`, ids);
       const menu = new Map(menuRows.map((m) => [m.id, m]));
       const missing = ids.filter((id) => !menu.has(id));
@@ -269,13 +274,13 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
         // Same item + same note already on this New order: bump qty instead of a duplicate line.
         // The snapshot price must match too, otherwise a mid-day price change would be merged away.
         const [same] = await t.query(`SELECT id, qty FROM ${T.order_items}
-                                      WHERE order_id = $1 AND item_id = $2 AND note = $3 AND unit_price_at_order = $4`,
+                                      WHERE order_id = $1 AND item_id = $2 AND note = $3 AND ${paise('unit_price_at_order')} = $4`,
           [order.id, m.id, l.note, m.price_paise]);
         if (same) {
           await t.query(`UPDATE ${T.order_items} SET qty = $1 WHERE id = $2`, [Math.min(same.qty + l.qty, 99), same.id]);
         } else {
           await t.query(`INSERT INTO ${T.order_items} (order_id, item_id, item_name, qty, note, unit_price_at_order, added_at)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7)`, [order.id, m.id, m.name, l.qty, l.note, m.price_paise, stamp]);
+                         VALUES ($1, $2, $3, $4, $5, $6, $7)`, [order.id, m.id, m.name, l.qty, l.note, rupees(m.price_paise), stamp]);
         }
       }
       return { order_id: order.id, appended };
@@ -342,8 +347,8 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
       }
       const stamp = now();
       const [{ id: billId }] = await t.query(`
-        INSERT INTO ${T.bills} (table_id, subtotal_paise, gst_paise, total_paise, closed_at)
-        VALUES ($1, $2, $3, $4, $5) RETURNING id`, [tableId, bill.subtotal_paise, bill.gst_paise, bill.total_paise, stamp]);
+        INSERT INTO ${T.bills} (table_id, subtotal, gst, total, closed_at)
+        VALUES ($1, $2, $3, $4, $5) RETURNING id`, [tableId, rupees(bill.subtotal_paise), rupees(bill.gst_paise), rupees(bill.total_paise), stamp]);
       await t.query(`UPDATE ${T.orders} SET paid_at = $1, bill_id = $2 WHERE table_id = $3 AND paid_at IS NULL`, [stamp, billId, tableId]);
       return { bill_id: billId, ...bill, paid_at: stamp };
     });
@@ -360,7 +365,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
 
     const [sales] = await db.query(`
       SELECT COUNT(DISTINCT o.id)                              AS orders,
-             COALESCE(SUM(oi.qty * oi.unit_price_at_order), 0) AS revenue_paise,
+             ${paise('COALESCE(SUM(oi.qty * oi.unit_price_at_order), 0)')} AS revenue_paise,
              COALESCE(SUM(oi.qty), 0)                          AS items_sold
       FROM ${T.orders} o JOIN ${T.order_items} oi ON oi.order_id = o.id
       WHERE o.placed_at >= $1 AND o.placed_at < $2`, [start, end]);
@@ -375,8 +380,8 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
 
     const [collected] = await db.query(`
       SELECT COUNT(*)                        AS bills,
-             COALESCE(SUM(total_paise), 0)   AS total_paise,
-             COALESCE(SUM(gst_paise), 0)     AS gst_paise
+             ${paise('COALESCE(SUM(total), 0)')} AS total_paise,
+             ${paise('COALESCE(SUM(gst), 0)')} AS gst_paise
       FROM ${T.bills} WHERE closed_at >= $1 AND closed_at < $2`, [start, end]);
 
     // Grouped by item_id, not name, so a rename mid-day does not split an item in two.
@@ -387,7 +392,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
              m.emoji                                   AS emoji,
              m.category_id                             AS category_id,
              SUM(oi.qty)                               AS qty,
-             SUM(oi.qty * oi.unit_price_at_order)      AS revenue_paise
+             ${paise('SUM(oi.qty * oi.unit_price_at_order)')} AS revenue_paise
       FROM ${T.order_items} oi
       JOIN ${T.orders} o          ON o.id = oi.order_id
       LEFT JOIN ${T.menu_items} m ON m.id = oi.item_id
@@ -400,7 +405,7 @@ function createStore(db, { now = () => Date.now(), tz = DEFAULT_TZ } = {}) {
     const hourRows = await db.query(`
       SELECT ((o.placed_at + $3) / 3600000) % 24     AS hour,
              COUNT(DISTINCT o.id)                   AS orders,
-             SUM(oi.qty * oi.unit_price_at_order)   AS revenue_paise
+             ${paise('SUM(oi.qty * oi.unit_price_at_order)')} AS revenue_paise
       FROM ${T.orders} o JOIN ${T.order_items} oi ON oi.order_id = o.id
       WHERE o.placed_at >= $1 AND o.placed_at < $2
       GROUP BY 1
