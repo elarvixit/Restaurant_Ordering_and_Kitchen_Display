@@ -449,9 +449,9 @@ dialog[open]::backdrop { animation: fade .25s ease; }
 /* ---------- home background (decorative, CSS only) ---------- */
 .home { --glow-1: #fb923c; --glow-2: #22c55e; --glow-3: #f59e0b; --glow-alpha: .30; --floater-alpha: .22; --dot: rgba(60, 45, 25, .10); }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .home { --glow-1: #f97316; --glow-2: #16a34a; --glow-3: #eab308; --glow-alpha: .22; --floater-alpha: .20; --dot: rgba(255, 240, 220, .06); }
+  :root:not([data-theme="light"]) .home { --glow-1: #f97316; --glow-2: #16a34a; --glow-3: #eab308; --glow-alpha: .24; --floater-alpha: .30; --dot: rgba(255, 240, 220, .06); }
 }
-:root[data-theme="dark"] .home { --glow-1: #f97316; --glow-2: #16a34a; --glow-3: #eab308; --glow-alpha: .22; --floater-alpha: .20; --dot: rgba(255, 240, 220, .06); }
+:root[data-theme="dark"] .home { --glow-1: #f97316; --glow-2: #16a34a; --glow-3: #eab308; --glow-alpha: .24; --floater-alpha: .30; --dot: rgba(255, 240, 220, .06); }
 
 .home { min-height: 100vh; min-height: 100dvh; }
 .home-bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
