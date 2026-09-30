@@ -75,3 +75,21 @@ test('a token signed by one server instance is accepted by another (Vercel scale
   assert.equal(res.status, 200);
   await db.close();
 });
+
+test('database connection problems get a clear message that never repeats the secret', () => {
+  const { connectionHint } = require('../src/app');
+  const secret = 'S3cretPass';
+  const cases = [
+    [{ code: '28P01', message: `password authentication failed for user "postgres" (${secret})` }, /password rejected/],
+    [{ code: 'XX000', message: 'Tenant or user not found' }, /user not found/],
+    [{ code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND db.example' }, /host not found/],
+    [{ code: 'ENETUNREACH', message: 'connect ENETUNREACH' }, /Transaction pooler/],
+    [{ code: '3D000', message: 'database "x" does not exist' }, /\/postgres/],
+  ];
+  for (const [err, re] of cases) {
+    const hint = connectionHint(err);
+    assert.match(hint, re);
+    assert.ok(!hint.includes(secret));
+  }
+  assert.equal(connectionHint(new Error('some bug')), null, 'other errors stay a plain 500');
+});

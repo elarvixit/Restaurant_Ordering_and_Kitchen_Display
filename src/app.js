@@ -7,6 +7,28 @@ const crypto = require('node:crypto');
 const { setup } = require('./schema');
 const { createStore, HttpError } = require('./store');
 
+// Database connection problems, explained without echoing the connection string or password.
+// Covers the usual Supabase mistakes, so a broken DATABASE_URL is fixable without digging in logs.
+function connectionHint(err) {
+  const code = err && (err.code || (err.cause && err.cause.code));
+  const msg = String((err && err.message) || '');
+  if (code === '28P01' || /password authentication failed/i.test(msg)) {
+    return 'Database password rejected: check the password in DATABASE_URL (no [ ] around it).';
+  }
+  if (/tenant or user not found/i.test(msg)) {
+    return 'Database user not found: in DATABASE_URL the user must be postgres.<project-ref>, as in the Transaction pooler string.';
+  }
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'Database host not found: check the host name in DATABASE_URL.';
+  if (['ENETUNREACH', 'EHOSTUNREACH', 'ETIMEDOUT', 'ECONNREFUSED'].includes(code) || /timeout/i.test(msg)) {
+    return 'Cannot reach the database: use the Transaction pooler string (port 6543), not the direct db.*.supabase.co one.';
+  }
+  if (code === '3D000') return 'Database name not found: DATABASE_URL should end in /postgres.';
+  if (/invalid url|searchParams|Invalid URL/i.test(msg) || code === 'ERR_INVALID_URL') {
+    return 'DATABASE_URL is not a valid postgresql:// address (a password with @ # / ? characters must be URL-encoded).';
+  }
+  return null;
+}
+
 function createApi(db, { pins, push = false, onWrite = () => {}, now, tz, secret } = {}) {
   const store = createStore(db, { now, tz });
   pins = pins || {
@@ -144,6 +166,8 @@ function createApi(db, { pins, push = false, onWrite = () => {}, now, tz, secret
       } catch (err) {
         if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message, ...(err.details || {}) });
         console.error(err);
+        const hint = connectionHint(err);
+        if (hint) return sendJson(res, 503, { error: hint });
         return sendJson(res, 500, { error: 'Something went wrong on the server' });
       }
     }
@@ -153,4 +177,4 @@ function createApi(db, { pins, push = false, onWrite = () => {}, now, tz, secret
   return { handle, store, ensureReady, pins };
 }
 
-module.exports = { createApi };
+module.exports = { createApi, connectionHint };
