@@ -58,8 +58,14 @@
     btn.setAttribute('aria-pressed', String(soundOn && !blocked));
     btn.title = blocked ? 'The browser blocks sound until someone taps the screen once' : 'New order alerts';
   }
+  // A tap fires pointerdown (which unlocks audio, below) before click, so remember whether sound was
+  // blocked when the tap began: tapping "Tap to turn on sound" must never switch sound off.
+  let blockedAtTap = null;
+  $('soundBtn').addEventListener('pointerdown', () => { blockedAtTap = audioBlocked(); });
   $('soundBtn').addEventListener('click', () => {
-    if (audioBlocked() && soundOn) { unlockAudio(); setTimeout(() => chime('new'), 150); return; } // just unlock
+    const wasBlocked = blockedAtTap ?? audioBlocked();
+    blockedAtTap = null;
+    if (wasBlocked && soundOn) { unlockAudio(); setTimeout(() => chime('new'), 150); return; } // just unlock
     soundOn = !soundOn;
     try { localStorage.setItem('kds-sound', soundOn ? 'on' : 'off'); } catch {}
     unlockAudio(); renderSoundBtn(); if (soundOn) setTimeout(() => chime('new'), 150);
