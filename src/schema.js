@@ -87,6 +87,27 @@ CREATE TABLE IF NOT EXISTS ${T.login_failures} (
   until_at ${TS} NOT NULL
 );
 
+-- Split bills: one row per person paying part of a bill. Only split bills have payers; together
+-- their amounts add up exactly to the bill's subtotal, GST and total.
+CREATE TABLE IF NOT EXISTS ${T.bill_payers} (
+  id        ${ID},
+  bill_id   INTEGER NOT NULL REFERENCES ${T.bills}(id),
+  payer_no  INTEGER NOT NULL CHECK (payer_no >= 1),
+  name      TEXT    NOT NULL,
+  subtotal  NUMERIC(12, 2) NOT NULL,  -- rupees, before GST
+  gst       NUMERIC(12, 2) NOT NULL,
+  total     NUMERIC(12, 2) NOT NULL,
+  UNIQUE (bill_id, payer_no)
+);
+
+-- Which units of which order line each payer paid for (3 naan can be 2 + 1).
+CREATE TABLE IF NOT EXISTS ${T.bill_payer_items} (
+  id            ${ID},
+  payer_id      INTEGER NOT NULL REFERENCES ${T.bill_payers}(id),
+  order_item_id INTEGER NOT NULL REFERENCES ${T.order_items}(id),
+  qty           INTEGER NOT NULL CHECK (qty > 0)
+);
+
 ${INDEXES.map(([name, on]) => `CREATE INDEX IF NOT EXISTS ${index(name)} ON ${on};`).join('\n')}
 ${dialect === 'postgres'
     // Supabase publishes every table in "public" through its REST API with the anon key. Row level
@@ -106,6 +127,8 @@ const INDEXES = [
   ['idx_order_items_item', `${T.order_items}(item_id)`],
   ['idx_bills_closed', `${T.bills}(closed_at)`],
   ['idx_items_category', `${T.menu_items}(category_id)`],
+  ['idx_bill_payers_bill', `${T.bill_payers}(bill_id)`],
+  ['idx_payer_items_payer', `${T.bill_payer_items}(payer_id)`],
 ];
 
 // [name, rupees, is_veg, prep minutes, picture]

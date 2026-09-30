@@ -5,7 +5,8 @@
 // supabase/schema.sql creates the same tables: keep the two in step.
 
 const PREFIX = 'babji_RestaurantKitchen_';
-const BASE = ['menu_categories', 'menu_items', 'tables', 'bills', 'orders', 'order_items', 'app_state', 'login_failures'];
+const BASE = ['menu_categories', 'menu_items', 'tables', 'bills', 'orders', 'order_items', 'app_state', 'login_failures',
+  'bill_payers', 'bill_payer_items'];
 
 // NAMES.orders -> babji_RestaurantKitchen_orders      (plain, for catalog lookups)
 // T.orders     -> "babji_RestaurantKitchen_orders"    (quoted, for use inside SQL)
