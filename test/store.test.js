@@ -269,7 +269,7 @@ test('[postgres] supabase/schema.sql creates exactly the schema the app creates'
       FROM information_schema.columns WHERE table_schema = 'public' ORDER BY table_name, column_name`),
     indexes: await db.query(`SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public' ORDER BY indexname`),
     rls: await db.query(`SELECT relname, relrowsecurity FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace ORDER BY relname`),
-    menu: await db.query(`SELECT c.name AS category, c.sort_order, i.name, i.price, i.is_veg, i.prep_minutes, i.emoji
+    menu: await db.query(`SELECT c.name AS category, c.sort_order, i.name, i.price, i.is_veg, i.prep_minutes, i.emoji, i.photo
                           FROM ${T.menu_items} i JOIN ${T.menu_categories} c ON c.id = i.category_id ORDER BY i.name`),
     tables: await db.query(`SELECT number, seats FROM ${T.tables} ORDER BY number`),
   });

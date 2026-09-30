@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS "babji_RestaurantKitchen_menu_items" (
   prep_minutes INTEGER NOT NULL DEFAULT 10 CHECK (prep_minutes >= 0),
   is_available INTEGER NOT NULL DEFAULT 1 CHECK (is_available IN (0, 1)),
   emoji        TEXT    NOT NULL DEFAULT '',  -- the dish's mini picture on the menu
+  photo        TEXT    NOT NULL DEFAULT '',  -- photo file in public/img/menu/, '' = show the emoji
   archived_at  BIGINT                        -- items are archived, never deleted
 );
 
@@ -136,6 +137,18 @@ BEGIN
   END LOOP;
 END $$;
 
+-- ---------------------------------------------------------------- dish photos
+-- Databases created before photos existed get the column, and each starting dish its photo
+-- (public/img/menu/<dish-name>.jpg). Dishes added by the manager keep showing their emoji.
+
+ALTER TABLE "babji_RestaurantKitchen_menu_items" ADD COLUMN IF NOT EXISTS photo TEXT NOT NULL DEFAULT '';
+
+UPDATE "babji_RestaurantKitchen_menu_items"
+SET photo = trim(both '-' from regexp_replace(lower(name), '[^a-z0-9]+', '-', 'g')) || '.jpg'
+WHERE photo = '' AND name IN ('Paneer Tikka', 'Chicken 65', 'Veg Spring Rolls', 'Amritsari Fish', 'Butter Chicken',
+  'Paneer Butter Masala', 'Dal Makhani', 'Mutton Rogan Josh', 'Veg Biryani', 'Chicken Biryani', 'Butter Naan', 'Garlic Naan',
+  'Tandoori Roti', 'Gulab Jamun', 'Rasmalai', 'Masala Chai', 'Sweet Lassi', 'Fresh Lime Soda');
+
 -- ---------------------------------------------------------------- security
 -- Supabase exposes every table in "public" through its REST API to anyone holding the project's
 -- anon key. Row level security with no policies blocks that completely. The app itself connects
@@ -158,8 +171,9 @@ SELECT v.name, v.sort_order
 FROM (VALUES ('Starters', 1), ('Mains', 2), ('Breads', 3), ('Desserts', 4), ('Beverages', 5)) AS v(name, sort_order)
 WHERE NOT EXISTS (SELECT 1 FROM "babji_RestaurantKitchen_menu_categories");
 
-INSERT INTO "babji_RestaurantKitchen_menu_items" (category_id, name, price, is_veg, prep_minutes, emoji)
-SELECT c.id, v.name, v.price, v.is_veg, v.prep_minutes, v.emoji
+INSERT INTO "babji_RestaurantKitchen_menu_items" (category_id, name, price, is_veg, prep_minutes, emoji, photo)
+SELECT c.id, v.name, v.price, v.is_veg, v.prep_minutes, v.emoji,
+       trim(both '-' from regexp_replace(lower(v.name), '[^a-z0-9]+', '-', 'g')) || '.jpg'
 FROM (VALUES
   ('Starters',  'Paneer Tikka',         280.00, 1, 15, '🧀'),
   ('Starters',  'Chicken 65',           320.00, 0, 15, '🌶️'),
@@ -195,7 +209,7 @@ ON CONFLICT (name) DO NOTHING;
 
 -- Tells the app the schema is already current (matches SCHEMA_VERSION in src/schema.js).
 INSERT INTO "babji_RestaurantKitchen_app_state" (name, num)
-VALUES ('schema', 3)
+VALUES ('schema', 4)
 ON CONFLICT (name) DO UPDATE SET num = GREATEST("babji_RestaurantKitchen_app_state".num, excluded.num);
 
 COMMIT;

@@ -155,10 +155,15 @@ const App = (() => {
 
   const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-  // Mini picture for a dish: its emoji on a soft gradient tinted by category (5 tones).
+  // Mini picture for a dish: its photo (public/img/menu/) when it has one, otherwise its emoji on a
+  // soft gradient tinted by category (5 tones). The emoji stays underneath the photo, so a photo that
+  // fails to load still leaves the emoji showing.
+  const PHOTO = /^[a-z0-9-]+\.(jpg|jpeg|png|webp)$/;
   function dishPic(item, size = 'md') {
     const tone = ((item?.category_id ?? 0) % 5 + 5) % 5;
-    return `<span class="dish-pic ${size}" data-tone="${tone}" aria-hidden="true"><span>${esc(item?.emoji || '🍽️')}</span></span>`;
+    const photo = PHOTO.test(item?.photo || '') ? item.photo : '';
+    return `<span class="dish-pic ${size}${photo ? ' has-photo' : ''}" data-tone="${tone}" aria-hidden="true"><span>${esc(item?.emoji || '🍽️')}</span>${
+      photo ? `<img src="/img/menu/${photo}" alt="" loading="lazy" decoding="async">` : ''}</span>`;
   }
 
   // Animates a number from 0 up to its value (formatted by fmt). Skipped for reduced motion.
