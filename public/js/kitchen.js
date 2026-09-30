@@ -13,34 +13,70 @@
   try { soundOn = localStorage.getItem('kds-sound') !== 'off'; } catch {}
 
   // ---------- sound (Web Audio, no files) ----------
+  // Three alerts, each easy to tell apart across a noisy kitchen:
+  //   new      a new ticket: three rising notes, played twice
+  //   added    items added to a ticket that is still New: two notes
+  //   reminder a ticket has waited over REMIND_AFTER_MIN without being started: one low double beep,
+  //            repeated every REMIND_EVERY_MS until someone taps it into Preparing
+  const REMIND_AFTER_MIN = 2;
+  const REMIND_EVERY_MS = 60_000;
+  const SOUNDS = {
+    new: { notes: [784, 988, 1319, 784, 988, 1319], gap: 0.16, gain: 0.5, type: 'triangle' },
+    added: { notes: [988, 1319], gap: 0.18, gain: 0.4, type: 'sine' },
+    reminder: { notes: [523, 523], gap: 0.22, gain: 0.35, type: 'square' },
+  };
   let audio = null;
   function unlockAudio() {
-    if (!audio && window.AudioContext) audio = new AudioContext();
-    audio?.resume();
+    if (!audio && window.AudioContext) {
+      audio = new AudioContext();
+      audio.addEventListener('statechange', renderSoundBtn);
+    }
+    audio?.resume().then(renderSoundBtn, renderSoundBtn);
   }
-  function chime() {
-    if (!soundOn || !audio) return;
-    const t = audio.currentTime;
-    [880, 1320].forEach((f, i) => {
+  const audioBlocked = () => soundOn && (!audio || audio.state !== 'running');
+  function chime(kind = 'new') {
+    if (!soundOn || !audio || audio.state !== 'running') return;
+    const { notes, gap, gain, type } = SOUNDS[kind];
+    const t = audio.currentTime + 0.02;
+    notes.forEach((f, i) => {
+      const at = t + i * gap + (kind === 'new' && i >= 3 ? 0.25 : 0); // short pause between the two runs
       const o = audio.createOscillator(), g = audio.createGain();
-      o.type = 'sine'; o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t + i * 0.18);
-      g.gain.exponentialRampToValueAtTime(0.35, t + i * 0.18 + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.18 + 0.35);
+      o.type = type; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(gain, at + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + gap * 1.8);
       o.connect(g).connect(audio.destination);
-      o.start(t + i * 0.18); o.stop(t + i * 0.18 + 0.4);
+      o.start(at); o.stop(at + gap * 2);
     });
   }
   function renderSoundBtn() {
-    $('soundBtn').textContent = soundOn ? '🔔 Sound on' : '🔕 Sound off';
-    $('soundBtn').setAttribute('aria-pressed', String(soundOn));
+    const blocked = audioBlocked();
+    const btn = $('soundBtn');
+    btn.textContent = !soundOn ? '🔕 Sound off' : blocked ? '🔇 Tap to turn on sound' : '🔔 Sound on';
+    btn.classList.toggle('primary', blocked);
+    btn.classList.toggle('attention', blocked);
+    btn.setAttribute('aria-pressed', String(soundOn && !blocked));
+    btn.title = blocked ? 'The browser blocks sound until someone taps the screen once' : 'New order alerts';
   }
   $('soundBtn').addEventListener('click', () => {
+    if (audioBlocked() && soundOn) { unlockAudio(); setTimeout(() => chime('new'), 150); return; } // just unlock
     soundOn = !soundOn;
     try { localStorage.setItem('kds-sound', soundOn ? 'on' : 'off'); } catch {}
-    unlockAudio(); renderSoundBtn(); if (soundOn) chime();
+    unlockAudio(); renderSoundBtn(); if (soundOn) setTimeout(() => chime('new'), 150);
   });
   document.addEventListener('pointerdown', unlockAudio, { once: true });
+
+  // Reminder for tickets nobody has started. Each ticket reminds at most once per REMIND_EVERY_MS.
+  const reminded = new Map(); // order id -> last reminder time
+  setInterval(() => {
+    const now = App.now();
+    const waiting = orders.filter((o) => o.status === 'New' && now - o.placed_at >= REMIND_AFTER_MIN * 60_000
+      && now - (reminded.get(o.id) || 0) >= REMIND_EVERY_MS);
+    if (!waiting.length) return;
+    waiting.forEach((o) => reminded.set(o.id, now));
+    chime('reminder');
+    for (const o of waiting) App.replay(document.querySelector(`.ticket[data-id="${o.id}"]`), 'nudge');
+  }, 5000);
 
   // ---------- render ----------
   function ticket(o, fresh, moved) {
@@ -92,10 +128,11 @@
   async function load() {
     const next = await api('/api/kitchen/orders');
     const fresh = new Set();
+    let brandNew = false;
     if (known) {
       for (const o of next) {
         const n = o.items.reduce((s, l) => s + l.qty, 0);
-        if (!known.has(o.id) || (o.status === 'New' && n > known.get(o.id))) fresh.add(o.id);
+        if (!known.has(o.id)) { fresh.add(o.id); brandNew = true; } else if (o.status === 'New' && n > known.get(o.id)) fresh.add(o.id);
       }
     }
     const moved = new Set(next.filter((o) => lastStatus.has(o.id) && lastStatus.get(o.id) !== o.status).map((o) => o.id));
@@ -103,7 +140,7 @@
     lastStatus = new Map(next.map((o) => [o.id, o.status]));
     orders = next;
     render(fresh, moved);
-    if (fresh.size) chime();
+    if (fresh.size) chime(brandNew ? 'new' : 'added');
   }
 
   $('board').addEventListener('click', async (e) => {

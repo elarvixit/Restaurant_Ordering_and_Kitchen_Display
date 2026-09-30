@@ -526,3 +526,10 @@ dialog[open]::backdrop { animation: fade .25s ease; }
 .credits-page a:not(.btn):not(.brand) { color: var(--accent); }
 .photo-credit { display: block; text-align: center; margin: 18px 0 8px; font-size: .8rem; color: var(--muted); }
 .photo-credit a { color: inherit; }
+
+/* ---------- kitchen sound alerts ---------- */
+#soundBtn.attention { animation: pulse-btn 1.4s ease-in-out infinite; }
+@keyframes pulse-btn { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 35%, transparent); } }
+.ticket.nudge { animation: nudge .6s ease-in-out 2; }
+@keyframes nudge { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+@media (prefers-reduced-motion: reduce) { #soundBtn.attention, .ticket.nudge { animation: none; } }
