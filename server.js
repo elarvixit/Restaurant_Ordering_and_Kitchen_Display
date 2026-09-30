@@ -10,6 +10,8 @@ const path = require('node:path');
 const os = require('node:os');
 const { sqliteDb, postgresDb } = require('./src/sql');
 const { createApi } = require('./src/app');
+const { realtimeConfig } = require('./src/realtime');
+const REALTIME = realtimeConfig();
 
 const PORT = Number(process.env.PORT) || 3000;
 const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'data', 'restaurant.db');
@@ -25,7 +27,7 @@ function createApp({ db, now, tz, pins } = {}) {
   // source of truth. Clients fall back to polling /api/version if the stream drops.
   const streams = new Set();
   const api = createApi(db, {
-    push: true, now, tz, pins,
+    push: true, now, tz, pins, realtime: REALTIME,
     onWrite: async () => {
       const version = await api.store.version();
       const msg = `event: change\ndata: ${JSON.stringify({ version })}\n\n`;
@@ -78,7 +80,8 @@ function createApp({ db, now, tz, pins } = {}) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Security-Policy',
-      "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'");
+      "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
+      + (REALTIME ? ` ${REALTIME.url} ${REALTIME.url.replace(/^http/, 'ws')}` : ''));
     const url = new URL(req.url, 'http://localhost');
     if (req.method === 'GET' && url.pathname === '/api/events') {
       return void openStream(req, res).catch(() => { res.writeHead(500); res.end(); });

@@ -4,11 +4,12 @@
 // POSTGRES_URL (set by Vercel's Supabase integration). Pages are served by Vercel from public/.
 // Tables are babji_RestaurantKitchen_*, see supabase/schema.sql.
 //
-// Live sync on Vercel: functions can't hold one push connection per screen, so
-// /api/version reports push:false and screens poll it every 2 seconds instead.
+// Live sync on Vercel: functions can't hold one push connection per screen, so each write is
+// announced over Supabase Realtime (WebSocket, src/realtime.js), with 2-second polling as the fallback.
 
 const { postgresDb } = require('../src/sql');
 const { createApi } = require('../src/app');
+const { realtimeConfig } = require('../src/realtime');
 
 // Builds the function handler around an API (exported so tests can run it on PGlite).
 const makeHandler = (api) => async (req, res) => {
@@ -38,5 +39,5 @@ const wrongUrl = (req, res) => {
   }));
 };
 // Created once per function instance and reused across requests.
-module.exports = notPostgres ? wrongUrl : makeHandler(url ? createApi(postgresDb(url.trim()), { push: false }) : null);
+module.exports = notPostgres ? wrongUrl : makeHandler(url ? createApi(postgresDb(url.trim()), { push: false, realtime: realtimeConfig() }) : null);
 module.exports.makeHandler = makeHandler;

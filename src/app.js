@@ -6,6 +6,7 @@
 const crypto = require('node:crypto');
 const { setup } = require('./schema');
 const { createStore, HttpError } = require('./store');
+const { broadcast, clientConfig } = require('./realtime');
 
 // Database connection problems, explained without echoing the connection string or password.
 // Covers the usual Supabase mistakes, so a broken DATABASE_URL is fixable without digging in logs.
@@ -29,8 +30,14 @@ function connectionHint(err) {
   return null;
 }
 
-function createApi(db, { pins, push = false, onWrite = () => {}, now, tz, secret } = {}) {
+// realtime: Supabase Realtime settings (src/realtime.js). When set, every write is also announced over
+// WebSocket, and /api/version tells screens where to listen. Without it screens poll or use SSE.
+function createApi(db, { pins, push = false, onWrite = () => {}, now, tz, secret, realtime = null, broadcastImpl = broadcast } = {}) {
   const store = createStore(db, { now, tz });
+  const announce = async () => {
+    await onWrite();
+    if (realtime) await broadcastImpl(realtime, { version: await store.version() });
+  };
   pins = pins || {
     kitchen: process.env.KITCHEN_PIN || '1234',
     manager: process.env.MANAGER_PIN || '4321',
@@ -84,7 +91,7 @@ function createApi(db, { pins, push = false, onWrite = () => {}, now, tz, secret
   // [method, pattern, allowed roles (null = public), handler, is a write]
   const W = true;
   const routes = [
-    ['GET', /^\/api\/version$/, null, async () => ({ version: await store.version(), push })],
+    ['GET', /^\/api\/version$/, null, async () => ({ version: await store.version(), push, realtime: clientConfig(realtime) })],
     ['POST', /^\/api\/login$/, null, ({ req, body }) => login(req, body)],
     ['GET', /^\/api\/session$/, null, ({ role }) => ({ role })],
 
@@ -160,8 +167,10 @@ function createApi(db, { pins, push = false, onWrite = () => {}, now, tz, secret
         }
         const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
         const result = await handler({ req, url, p, body, role });
+        // Announce before answering: on Vercel the function may be frozen as soon as it responds.
+        // A failed announcement never fails the write: screens still catch up by polling.
+        if (isWrite) await announce().catch((err) => console.error('live-sync announce failed', err));
         sendJson(res, 200, result);
-        if (isWrite) onWrite();
         return;
       } catch (err) {
         if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message, ...(err.details || {}) });

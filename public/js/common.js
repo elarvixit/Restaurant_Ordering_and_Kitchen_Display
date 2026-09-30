@@ -71,8 +71,9 @@ const App = (() => {
     // A tab that was asleep (phone screen off) catches up on wake.
     document.addEventListener('visibilitychange', () => { if (!document.hidden) onChange(ALL); });
 
-    let push = true;
-    try { const r = await api('/api/version'); version = r.version; push = r.push !== false; } catch {}
+    let push = true, realtime = null;
+    try { const r = await api('/api/version'); version = r.version; push = r.push !== false; realtime = r.realtime; } catch {}
+    if (realtime && 'WebSocket' in window) return realtimeSocket(realtime, { seen, startPolling, stopPolling, onStatus, onChange });
     if (!push || !('EventSource' in window)) return startPolling(2000, 'live-poll');
 
     {
@@ -87,6 +88,62 @@ const App = (() => {
       es.addEventListener('change', (e) => { const d = JSON.parse(e.data); seen(d.version, d.topics); });
       es.onerror = () => startPolling(3000, 'polling');
     }
+  }
+
+  // WebSocket push through Supabase Realtime (Phoenix protocol v2, no library). The server broadcasts
+  // { version } on every write; this joins the channel and refetches when the version moves. While the
+  // socket is down it polls every 2 s and reconnects with back-off. A slow 20 s check also runs while
+  // connected, because a broadcast can be lost and nothing else would notice.
+  function realtimeSocket(cfg, { seen, startPolling, stopPolling, onStatus, onChange }) {
+    const topic = `realtime:${cfg.topic}`;
+    let ws = null, ref = 0, joinRef = null, beat = null, retry = 1000, joined = false;
+    const send = (m) => { try { ws.send(JSON.stringify(m)); } catch {} };
+    const next = () => String(++ref);
+    setInterval(async () => {
+      if (!joined || document.hidden) return;
+      try { seen((await api('/api/version')).version); } catch {}
+    }, 20000);
+
+    function down() {
+      joined = false;
+      clearInterval(beat);
+      startPolling(2000, 'polling');
+      setTimeout(connect, retry);
+      retry = Math.min(retry * 2, 30000);
+    }
+
+    function connect() {
+      try { ws = new WebSocket(cfg.url); } catch { return down(); }
+      ws.onopen = () => {
+        joinRef = next();
+        send([joinRef, joinRef, topic, 'phx_join', {
+          config: { broadcast: { ack: false, self: false }, presence: { enabled: false }, postgres_changes: [], private: false },
+          access_token: null,
+        }]);
+        beat = setInterval(() => send([null, next(), 'phoenix', 'heartbeat', {}]), 25000);
+      };
+      ws.onmessage = (e) => {
+        let m; try { m = JSON.parse(e.data); } catch { return; }
+        const [, msgRef, msgTopic, event, payload] = m;
+        if (event === 'phx_reply' && msgRef === joinRef) {
+          if (payload?.status !== 'ok') { try { ws.close(); } catch {} return; }
+          joined = true;
+          retry = 1000;
+          stopPolling();
+          onStatus('live-ws');
+          onChange(ALL); // catch up on anything written while we were connecting
+        } else if (msgTopic === topic && event === 'broadcast' && payload?.event === 'change') {
+          seen(payload.payload?.version, payload.payload?.topics);
+        } else if (msgTopic === topic && (event === 'phx_error' || event === 'phx_close')) {
+          try { ws.close(); } catch {}
+        }
+      };
+      ws.onclose = down;
+      ws.onerror = () => { try { ws.close(); } catch {} };
+    }
+
+    startPolling(2000, 'live-poll'); // until the socket has joined
+    connect();
   }
 
   function toast(message, kind = 'info') {
