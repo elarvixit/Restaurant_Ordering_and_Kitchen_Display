@@ -1,6 +1,6 @@
 # Restaurant Ordering & Kitchen Display
 
-Three screens on one database: SQLite on your own machine, Postgres (Neon) when deployed on Vercel.
+Three screens on one database: SQLite on your own machine, Postgres (Supabase) when deployed on Vercel.
 
 | Screen | URL | Access |
 |---|---|---|
@@ -13,7 +13,7 @@ Three screens on one database: SQLite on your own machine, Postgres (Neon) when 
 Requires **Node.js 22.13+** (uses the built-in `node:sqlite` locally).
 
 ```bash
-npm install            # Neon driver (used on Vercel) + PGlite (tests only)
+npm install            # pg driver (Supabase on Vercel) + PGlite (tests only)
 npm start              # http://localhost:3000, SQLite file in data/
 npm run demo           # optional: fill today with ~25 finished orders for the dashboard
 npm test               # 30 tests; the business rules run on both SQLite and Postgres (PGlite)
@@ -39,16 +39,23 @@ The server prints its LAN address so tablets and phones on the same Wi-Fi can op
 ## Deploy on Vercel
 
 The pages are served from `public/` and every `/api/*` request runs the Vercel Function `api/index.js`
-(the rewrite is in `vercel.json`). The function needs a Postgres database:
+(the rewrite is in `vercel.json`; `.vercelignore` keeps the local `server.js` out). The database is **Supabase**.
+Every table starts with `babji_RestaurantKitchen_` (names in `src/tables.js`), so the app can share a Supabase
+project with other apps.
 
-1. In your Vercel project, open **Storage**, click **Create Database**, choose **Neon** (Serverless Postgres), pick
-   the free plan and a region near you (e.g. Singapore / Mumbai), and **connect it to this project**. Vercel adds
-   `DATABASE_URL` to the project's environment variables.
-2. In **Settings → Environment Variables** add `KITCHEN_PIN` and `MANAGER_PIN` (your own PINs) and
-   `SESSION_SECRET` (any long random text).
-3. **Deployments → ⋯ → Redeploy** (or push any commit). The tables and the menu are created on the first request.
-4. Optional demo data: copy `DATABASE_URL` from Vercel, then locally run
-   `="postgresql://..."; npm run demo` (PowerShell).
+1. **Create the tables:** in Supabase open **SQL Editor → New query**, paste all of
+   [`supabase/schema.sql`](supabase/schema.sql) and click **Run**. It creates the 8 tables, their indexes, row level
+   security (blocks Supabase's public REST API from these tables) and the starting menu and 12 tables. It is safe to run
+   again. (The app would also create them on its first request, but running the script lets you check them first.)
+2. **Get the connection string:** in Supabase click **Connect → Transaction pooler** (port **6543**) and copy the
+   URI, replacing `[YOUR-PASSWORD]` with the database password.
+3. In Vercel **Settings → Environment Variables** add `DATABASE_URL` (that URI), `KITCHEN_PIN` and `MANAGER_PIN`
+   (your own PINs) and `SESSION_SECRET` (any long random text), for all environments.
+4. **Deployments → ⋯ → Redeploy** (or push any commit).
+5. Optional demo data: locally run `$env:DATABASE_URL="postgresql://..."; npm run demo` (PowerShell).
+
+Querying the tables yourself: the names contain capital letters, so quote them:
+`SELECT * FROM "babji_RestaurantKitchen_orders";`
 
 Differences from running locally: live sync polls `/api/version` every 2 s instead of instant push (orders reach
 the kitchen in about 2 s; the requirement is 5 s). Everything else is identical, because both use the same code.
@@ -72,11 +79,13 @@ the shortcut from `shell:startup`.
 
 ```
 server.js           local server: static pages, the API, Server-Sent Events push (npm start)
-api/index.js        Vercel Function: the same API, on Neon Postgres
+api/index.js        Vercel Function: the same API, on Supabase Postgres
+supabase/schema.sql the SQL to run once in Supabase's SQL editor
 vercel.json         clean URLs (/customer) and the /api/* -> function rewrite
 src/app.js          the JSON API: routes, roles, signed PIN tokens, lockout
 src/store.js        all business rules and dashboard queries (same SQL on SQLite and Postgres)
-src/sql.js          database adapters: SQLite (local), Neon Postgres (Vercel), PGlite (tests)
+src/sql.js          database adapters: SQLite (local), Supabase Postgres (Vercel), PGlite (tests)
+src/tables.js       every table name (babji_RestaurantKitchen_ prefix)
 src/schema.js       tables, indexes, upgrades of older databases, seed menu
 src/time.js         restaurant time zone: "today" and hour buckets
 public/             customer / kitchen / manager pages (vanilla JS, one stylesheet)
