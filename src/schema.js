@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS ${T.login_failures} (
   until_at ${TS} NOT NULL
 );
 
--- Split bills: one row per person paying part of a bill. Only split bills have payers; together
+-- Split bills: one row per person paying part of a bill. Only split bills have payers, and together
 -- their amounts add up exactly to the bill's subtotal, GST and total.
 CREATE TABLE IF NOT EXISTS ${T.bill_payers} (
   id        ${ID},
@@ -169,7 +169,7 @@ const photoFile = (name) => `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').re
 // Creates tables, upgrades older databases in place, and seeds an empty one.
 // Safe to run on every start. On Postgres an advisory lock stops two cold-starting
 // serverless instances from seeding twice.
-const SCHEMA_VERSION = 4; // bump when upgrade() learns something new
+const SCHEMA_VERSION = 5; // bump when upgrade() learns something new (5: split-bill tables)
 
 async function setup(db) {
   // Fast path for serverless cold starts: one query when the database is current.
