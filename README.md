@@ -125,8 +125,13 @@ Derived state is never stored twice. For example, a table is "occupied" exactly 
 ### Price snapshotting
 `order_items` stores `unit_price_at_order` **and** `item_name` when a line is added. Bills, the kitchen and the
 dashboard read only these snapshot columns, so changing a price, renaming a dish, marking it unavailable or
-removing it from the menu (soft delete, `archived_at`) never changes an existing order. Money is integer paise,
-and GST is `round(subtotal × 5 / 100)`.
+removing it from the menu (soft delete, `archived_at`) never changes an existing order.
+
+Money is stored in **rupees** with two decimals (`NUMERIC(10,2)`: `price`, `unit_price_at_order`, and `subtotal`,
+`gst`, `total` on bills), so Supabase shows `480.00`, not `48000`. Inside the app and the API amounts are whole paise
+(fields ending in `_paise`) so totals and GST, `round(subtotal × 5 / 100)`, are exact; `src/store.js` converts at
+the database boundary. Databases from before this change (money in `*_paise` columns) are converted automatically on
+start, and `supabase/schema.sql` does the same conversion if run again.
 
 ### Business rules
 * **Add to an open order:** new items join the table's latest order while it is still `New`. Once the kitchen
