@@ -185,11 +185,34 @@ async function renameLegacyTables(db) {
   });
 }
 
+// Map of column name -> lower-case type for one table.
+async function columns(t, base) {
+  const rows = await t.query(t.dialect === 'postgres'
+    ? 'SELECT column_name AS name, data_type AS type FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1'
+    : 'SELECT name, type FROM pragma_table_info($1)', [NAMES[base]]);
+  return new Map(rows.map((c) => [c.name, String(c.type).toLowerCase()]));
+}
+
+// Schema 3: money moved from integer paise (48000) to rupees (480.00), and the columns lost
+// their _paise suffix. Existing rows are converted in place, inside the setup transaction.
+async function moneyToRupees(t) {
+  const pg = t.dialect === 'postgres';
+  const convert = async (base, from, to, precision) => {
+    const cols = await columns(t, base);
+    if (cols.has(from) && from !== to) await t.query(`ALTER TABLE ${T[base]} RENAME COLUMN ${from} TO ${to}`);
+    else if (!cols.has(from) || !/int/.test(cols.get(from))) return; // already rupees
+    if (pg) await t.query(`ALTER TABLE ${T[base]} ALTER COLUMN ${to} TYPE NUMERIC(${precision}, 2) USING ${to} / 100.0`);
+    else await t.query(`UPDATE ${T[base]} SET ${to} = ${to} / 100.0`);
+  };
+  await convert('menu_items', 'price_paise', 'price', 10);
+  await convert('order_items', 'unit_price_at_order', 'unit_price_at_order', 10);
+  for (const c of ['subtotal', 'gst', 'total']) await convert('bills', `${c}_paise`, c, 12);
+}
+
 async function upgrade(t) {
-  const cols = (await t.query(t.dialect === 'postgres'
-    ? 'SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1'
-    : 'SELECT name FROM pragma_table_info($1)', [NAMES.menu_items])).map((c) => c.name);
-  if (!cols.includes('emoji')) {
+  await moneyToRupees(t);
+  const cols = await columns(t, 'menu_items');
+  if (!cols.has('emoji')) {
     await t.query(`ALTER TABLE ${T.menu_items} ADD COLUMN emoji TEXT NOT NULL DEFAULT ''`);
     for (const [name, emoji] of SEED_EMOJI) {
       await t.query(`UPDATE ${T.menu_items} SET emoji = $1 WHERE name = $2 AND emoji = ''`, [emoji, name]);
