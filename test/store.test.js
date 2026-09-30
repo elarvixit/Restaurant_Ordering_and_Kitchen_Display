@@ -285,3 +285,115 @@ test('[postgres] supabase/schema.sql creates exactly the schema the app creates'
   await byApp.close();
   await byScript.close();
 });
+
+// ---------- money: paise (schema 2) -> rupees (schema 3) ----------
+
+// A Postgres database as it was before the change: money in integer *_paise columns, schema 2.
+// Built from a current one with one closed bill and one open order, then turned back into paise.
+async function paiseEraPostgres() {
+  const db = await pgliteDb();
+  await setupSchema(db);
+  const store = createStore(db, { tz: 'UTC' });
+  const id = async (n) => (await db.query(`SELECT id FROM ${T.menu_items} WHERE name = $1`, [n]))[0].id;
+  const bc = await id('Butter Chicken'), naan = await id('Butter Naan'), chai = await id('Masala Chai');
+  // 2 x 420 + 60 + 60 = Rs 960, GST Rs 48, total Rs 1008
+  const { order_id } = await store.placeOrder(4, { items: [{ item_id: bc, qty: 2 }, { item_id: naan, qty: 1 }, { item_id: chai, qty: 1 }] });
+  for (const from of ['New', 'Preparing', 'Ready']) await store.advanceOrder(order_id, { from });
+  await store.closeTable(4);
+  await store.placeOrder(7, { items: [{ item_id: chai, qty: 3 }] });
+  const back = (tbl, from, to) => [
+    `ALTER TABLE ${T[tbl]} ALTER COLUMN ${from} TYPE INTEGER USING ROUND(${from} * 100)::INTEGER`,
+    ...(from === to ? [] : [`ALTER TABLE ${T[tbl]} RENAME COLUMN ${from} TO ${to}`]),
+  ];
+  for (const stmt of [
+    ...back('menu_items', 'price', 'price_paise'),
+    ...back('order_items', 'unit_price_at_order', 'unit_price_at_order'),
+    ...back('bills', 'subtotal', 'subtotal_paise'), ...back('bills', 'gst', 'gst_paise'), ...back('bills', 'total', 'total_paise'),
+    `UPDATE ${T.app_state} SET num = 2 WHERE name = 'schema'`,
+  ]) await db.exec(stmt);
+  const [old] = await db.query(`SELECT price_paise FROM ${T.menu_items} WHERE name = 'Butter Chicken'`);
+  assert.equal(old.price_paise, 42000, 'test database really is in paise');
+  return db;
+}
+
+async function assertRupees(db) {
+  const cols = await db.query(`SELECT table_name, column_name, data_type FROM information_schema.columns
+                               WHERE table_name IN ($1, $2, $3)`,
+  ['babji_RestaurantKitchen_menu_items', 'babji_RestaurantKitchen_bills', 'babji_RestaurantKitchen_order_items']);
+  assert.ok(!cols.some((c) => c.column_name.endsWith('_paise')), 'no *_paise columns left');
+  for (const [t, c] of [['menu_items', 'price'], ['bills', 'total'], ['order_items', 'unit_price_at_order']]) {
+    assert.equal(cols.find((x) => x.table_name.endsWith(t) && x.column_name === c).data_type, 'numeric');
+  }
+  const [bc] = await db.query(`SELECT price FROM ${T.menu_items} WHERE name = 'Butter Chicken'`);
+  assert.equal(bc.price, 420);
+  const [bill] = await db.query(`SELECT subtotal, gst, total FROM ${T.bills}`);
+  assert.deepEqual([bill.subtotal, bill.gst, bill.total], [960, 48, 1008]);
+  // The app reads the same amounts as before, and keeps working on the converted data.
+  const store = createStore(db, { tz: 'UTC' });
+  assert.equal((await store.getTableBill(7)).subtotal_paise, 18000, 'open order: 3 chai at Rs 60');
+  const d = await store.dashboard();
+  assert.equal(d.collected.total_paise, 100800);
+  assert.equal(d.revenue_paise, 96000 + 18000);
+  const [chai] = await db.query(`SELECT id FROM ${T.menu_items} WHERE name = 'Masala Chai'`);
+  await store.placeOrder(7, { items: [{ item_id: chai.id, qty: 1 }] });
+  const open = await store.getTableBill(7);
+  assert.equal(open.subtotal_paise, 24000);
+  assert.equal(open.orders[0].items.length, 1, 'new chai merges into the converted line');
+}
+
+test('[postgres] the app converts an existing paise database (like the live Supabase one) to rupees', async () => {
+  const db = await paiseEraPostgres();
+  await setupSchema(db);
+  await assertRupees(db);
+  await setupSchema(db); // again: must not divide twice
+  const [bc] = await db.query(`SELECT price FROM ${T.menu_items} WHERE name = 'Butter Chicken'`);
+  assert.equal(bc.price, 420);
+  await db.close();
+});
+
+test('[postgres] supabase/schema.sql converts an existing paise database to rupees', async () => {
+  const db = await paiseEraPostgres();
+  await db.exec(SUPABASE_SQL);
+  await db.exec(SUPABASE_SQL); // twice is harmless
+  await assertRupees(db);
+  await setupSchema(db); // the app then sees schema 3 and changes nothing
+  const [bc] = await db.query(`SELECT price FROM ${T.menu_items} WHERE name = 'Butter Chicken'`);
+  assert.equal(bc.price, 420);
+  await db.close();
+});
+
+test('[sqlite] a local paise database (schema 2) is converted to rupees once', async () => {
+  const db = sqliteDb(':memory:');
+  await db.exec(`
+    CREATE TABLE ${T.menu_categories} (id INTEGER PRIMARY KEY, name TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, archived_at INTEGER);
+    CREATE TABLE ${T.menu_items} (id INTEGER PRIMARY KEY, category_id INTEGER NOT NULL REFERENCES ${T.menu_categories}(id), name TEXT NOT NULL,
+      price_paise INTEGER NOT NULL CHECK (price_paise >= 0), is_veg INTEGER NOT NULL DEFAULT 1, prep_minutes INTEGER NOT NULL DEFAULT 10,
+      is_available INTEGER NOT NULL DEFAULT 1, emoji TEXT NOT NULL DEFAULT '', archived_at INTEGER);
+    CREATE TABLE ${T.tables} (id INTEGER PRIMARY KEY, number INTEGER NOT NULL UNIQUE, seats INTEGER NOT NULL DEFAULT 4);
+    CREATE TABLE ${T.bills} (id INTEGER PRIMARY KEY, table_id INTEGER NOT NULL REFERENCES ${T.tables}(id),
+      subtotal_paise INTEGER NOT NULL, gst_paise INTEGER NOT NULL, total_paise INTEGER NOT NULL, closed_at INTEGER NOT NULL);
+    CREATE TABLE ${T.orders} (id INTEGER PRIMARY KEY, table_id INTEGER NOT NULL REFERENCES ${T.tables}(id), status TEXT NOT NULL DEFAULT 'New',
+      placed_at INTEGER NOT NULL, preparing_at INTEGER, ready_at INTEGER, served_at INTEGER, paid_at INTEGER, bill_id INTEGER REFERENCES ${T.bills}(id));
+    CREATE TABLE ${T.order_items} (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES ${T.orders}(id) ON DELETE CASCADE,
+      item_id INTEGER NOT NULL REFERENCES ${T.menu_items}(id), item_name TEXT NOT NULL, qty INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '',
+      unit_price_at_order INTEGER NOT NULL CHECK (unit_price_at_order >= 0), added_at INTEGER NOT NULL);
+    CREATE TABLE ${T.app_state} (name TEXT PRIMARY KEY, num INTEGER NOT NULL);
+    INSERT INTO ${T.app_state} VALUES ('schema', 2), ('version', 1);
+    INSERT INTO ${T.menu_categories} (name, sort_order) VALUES ('Mains', 1);
+    INSERT INTO ${T.menu_items} (category_id, name, price_paise) VALUES (1, 'Dal Makhani', 28050);
+    INSERT INTO ${T.tables} (number, seats) VALUES (1, 4);
+    INSERT INTO ${T.bills} (table_id, subtotal_paise, gst_paise, total_paise, closed_at) VALUES (1, 56100, 2805, 58905, 1);
+    INSERT INTO ${T.orders} (table_id, status, placed_at, paid_at, bill_id) VALUES (1, 'Served', 1, 1, 1);
+    INSERT INTO ${T.order_items} (order_id, item_id, item_name, qty, unit_price_at_order, added_at) VALUES (1, 1, 'Dal Makhani', 2, 28050, 1);`);
+  await setupSchema(db);
+  await setupSchema(db); // again: must not divide twice
+  const [item] = await db.query(`SELECT price FROM ${T.menu_items}`);
+  const [bill] = await db.query(`SELECT subtotal, gst, total FROM ${T.bills}`);
+  const [line] = await db.query(`SELECT unit_price_at_order FROM ${T.order_items}`);
+  assert.equal(item.price, 280.5);
+  assert.deepEqual([bill.subtotal, bill.gst, bill.total], [561, 28.05, 589.05]);
+  assert.equal(line.unit_price_at_order, 280.5);
+  assert.equal((await createStore(db, { tz: 'UTC' }).getMenu()).items[0].price_paise, 28050, 'the app still reads exact paise');
+  assert.equal((await db.query(`SELECT num FROM ${T.app_state} WHERE name = 'schema'`))[0].num, 3);
+  await db.close();
+});
