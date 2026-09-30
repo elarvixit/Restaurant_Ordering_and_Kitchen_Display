@@ -15,7 +15,7 @@ const makeHandler = (api) => async (req, res) => {
     res.statusCode = 503;
     res.setHeader('Content-Type', 'application/json');
     return res.end(JSON.stringify({
-      error: 'Database not connected. In Vercel open Storage, add a Neon Postgres database to this project, then redeploy.',
+      error: 'Database not connected. In Vercel set DATABASE_URL (Supabase or Neon Postgres) for this project, then redeploy.',
     }));
   }
   // The rewrite passes the original path as ?__path=...; fall back to req.url itself.
