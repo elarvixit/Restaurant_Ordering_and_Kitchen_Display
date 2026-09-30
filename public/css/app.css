@@ -516,3 +516,13 @@ dialog[open]::backdrop { animation: fade .25s ease; }
   .home .landing h1 { background-position: 50% 0; }
   .home-bg .floater { animation: none !important; bottom: auto; top: var(--y); opacity: var(--floater-alpha); }
 }
+
+/* ---------- photo credits ---------- */
+.credits { list-style: none; margin: 20px 0; padding: 0; display: grid; gap: 10px; }
+.credit { display: flex; gap: 14px; align-items: center; padding: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.credit img { flex: none; width: 64px; height: 64px; border-radius: 12px; object-fit: cover; }
+.credit div { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.credit .muted { font-size: .85rem; }
+.credits-page a:not(.btn):not(.brand) { color: var(--accent); }
+.photo-credit { display: block; text-align: center; margin: 18px 0 8px; font-size: .8rem; color: var(--muted); }
+.photo-credit a { color: inherit; }
