@@ -107,6 +107,40 @@
     </form>
   </dialog>
 
+  <!-- Split bill by item: tap a payer for each item. Every item goes to exactly one payer. -->
+  <dialog id="splitDialog" class="wide-dialog">
+    <form method="dialog" class="dialog-body" id="splitForm">
+      <h2 id="splitTitle">Split bill</h2>
+      <div class="split-payers">
+        <div id="payerNames" class="payer-names"></div>
+        <div class="payer-count">
+          <button class="btn small" type="button" id="payerLess" aria-label="One payer fewer">−</button>
+          <span id="payerCount" class="num">2 payers</span>
+          <button class="btn small" type="button" id="payerMore" aria-label="One more payer">+</button>
+        </div>
+      </div>
+      <p class="muted small-note" style="margin:0">Tap who pays for each item. Items with a quantity are listed once per unit, so 3 naan can be split 2 + 1.</p>
+      <div id="splitUnits" class="split-units"></div>
+      <div id="splitSummary" class="split-summary"></div>
+      <p class="pin-error" id="splitError" role="alert"></p>
+      <div class="dialog-actions">
+        <button class="btn" value="cancel" formnovalidate type="submit">Cancel</button>
+        <button class="btn primary" value="save" type="submit" id="splitSave">Close table · split</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="receiptDialog" class="wide-dialog">
+    <form method="dialog" class="dialog-body">
+      <h2 id="receiptTitle">Bill closed</h2>
+      <div id="receiptBody" class="receipts"></div>
+      <div class="dialog-actions">
+        <button class="btn" type="button" id="printReceipts">🖨 Print</button>
+        <button class="btn primary" value="done" type="submit">Done</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="/js/common.js"></script>
   <script src="/js/manager.js"></script>
 </body>
