@@ -7,7 +7,6 @@ Three screens on one database: SQLite on your own machine, Postgres (Supabase) w
 | Customer (per table) | `/customer` | no login |
 | Kitchen Display | `/kitchen` | Kitchen PIN (default `1234`) |
 | Manager | `/manager` | Manager PIN (default `4321`) |
-| System status (local server only, not on the live site) | `/status` | Manager PIN: database connection, environment variables (never their values), every table with row counts and row level security, deployment and screen checks |
 
 ## Run
 
@@ -88,7 +87,6 @@ src/store.js        all business rules and dashboard queries (same SQL on SQLite
 src/sql.js          database adapters: SQLite (local), Supabase Postgres (Vercel), PGlite (tests)
 src/tables.js       every table name (babji_RestaurantKitchen_ prefix)
 src/schema.js       tables, indexes, upgrades of older databases, seed menu
-src/status.js       the /status report (no secret values ever leave the server)
 src/time.js         restaurant time zone: "today" and hour buckets
 public/             customer / kitchen / manager pages (vanilla JS, one stylesheet)
 scripts/            demo data, auto-push to GitHub

@@ -6,8 +6,6 @@
 const crypto = require('node:crypto');
 const { setup } = require('./schema');
 const { createStore, HttpError } = require('./store');
-// Loaded only when the status page is on (src/status.js is not deployed to Vercel).
-const systemStatus = (...args) => require('./status').systemStatus(...args);
 
 // Database connection problems, explained without echoing the connection string or password.
 // Covers the usual Supabase mistakes, so a broken DATABASE_URL is fixable without digging in logs.
@@ -31,8 +29,7 @@ function connectionHint(err) {
   return null;
 }
 
-// statusPage: the manager's /status report. Off on Vercel, so the live site does not have it.
-function createApi(db, { pins, push = false, onWrite = () => {}, now, tz, secret, statusPage = !process.env.VERCEL } = {}) {
+function createApi(db, { pins, push = false, onWrite = () => {}, now, tz, secret } = {}) {
   const store = createStore(db, { now, tz });
   pins = pins || {
     kitchen: process.env.KITCHEN_PIN || '1234',
@@ -104,7 +101,6 @@ function createApi(db, { pins, push = false, onWrite = () => {}, now, tz, secret
 
     // Manager
     ['GET', /^\/api\/admin\/dashboard$/, MANAGER, ({ url }) => store.dashboard(url.searchParams.get('date'))],
-    ...(statusPage ? [['GET', /^\/api\/admin\/status$/, MANAGER, () => systemStatus(db, { pins, push })]] : []),
     ['POST', /^\/api\/admin\/tables$/, MANAGER, ({ body }) => store.addTable(body), W],
     ['POST', /^\/api\/admin\/tables\/(\d+)\/close$/, MANAGER, ({ p }) => store.closeTable(+p[1]), W],
     ['POST', /^\/api\/admin\/categories$/, MANAGER, ({ body }) => store.saveCategory(null, body), W],
