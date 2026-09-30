@@ -280,7 +280,7 @@ test('[postgres] supabase/schema.sql creates exactly the schema the app creates'
   const a = await shape(byApp), b = await shape(byScript);
   assert.ok(a.columns.every((c) => c.table_name.startsWith('babji_RestaurantKitchen_')));
   assert.ok(a.indexes.every((i) => i.indexname.startsWith('babji_RestaurantKitchen_')));
-  assert.ok(a.rls.length === 8 && a.rls.every((r) => r.relrowsecurity), 'row level security is on for every table');
+  assert.ok(a.rls.length === 10 && a.rls.every((r) => r.relrowsecurity), 'row level security is on for every table');
   assert.deepEqual(b, a);
   await byApp.close();
   await byScript.close();
@@ -394,7 +394,7 @@ test('[sqlite] a local paise database (schema 2) is converted to rupees once', a
   assert.deepEqual([bill.subtotal, bill.gst, bill.total], [561, 28.05, 589.05]);
   assert.equal(line.unit_price_at_order, 280.5);
   assert.equal((await createStore(db, { tz: 'UTC' }).getMenu()).items[0].price_paise, 28050, 'the app still reads exact paise');
-  assert.equal((await db.query(`SELECT num FROM ${T.app_state} WHERE name = 'schema'`))[0].num, 4);
+  assert.equal((await db.query(`SELECT num FROM ${T.app_state} WHERE name = 'schema'`))[0].num, 5);
   await db.close();
 });
 
