@@ -1,7 +1,7 @@
 'use strict';
 // System status page (manager PIN): is the app deployed, configured and talking to Supabase?
 (() => {
-  const { api, esc, clock, pinGate, logout, countUp } = App;
+  const { api, esc, clock, pinGate, logout } = App;
   const $ = (id) => document.getElementById(id);
   const REFRESH_MS = 30_000;
   const SCREENS = [['/', 'Home'], ['/customer', 'Customer'], ['/kitchen', 'Kitchen'], ['/manager', 'Manager']];

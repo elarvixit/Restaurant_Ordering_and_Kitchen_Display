@@ -3,9 +3,16 @@
   "configurations": [
     {
       "name": "restaurant",
-      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeExecutable": "node",
       "runtimeArgs": ["server.js"],
       "port": 3000
+    },
+    {
+      "name": "restaurant-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.js"],
+      "port": 3100,
+      "autoPort": true
     }
   ]
 }
