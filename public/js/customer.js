@@ -370,7 +370,8 @@
       if (state.tableId && table()) await chooseTable(state.tableId);
       else showPicker(true);
     } catch (err) {
-      toast('Could not reach the restaurant server. Retrying…', 'error');
+      // Show the server's own reason when it gave one (e.g. "Database not connected").
+      toast(err?.data?.error ? `${err.data.error} Retrying…` : 'Could not reach the restaurant server. Retrying…', 'error');
       setTimeout(() => location.reload(), 4000);
     }
   })();
