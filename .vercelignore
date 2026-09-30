@@ -1,0 +1,7 @@
+# server.js is the local-only server (SQLite in data/). If Vercel sees it, it deploys it as the
+# app's backend, which crashes on Vercel's read-only filesystem. On Vercel, pages come from
+# public/ and the API from api/index.js.
+server.js
+data/
+scripts/
+test/
