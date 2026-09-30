@@ -93,3 +93,52 @@ test('database connection problems get a clear message that never repeats the se
   }
   assert.equal(connectionHint(new Error('some bug')), null, 'other errors stay a plain 500');
 });
+
+// ---------- WebSocket push (Supabase Realtime) ----------
+
+test('realtime settings come from the Supabase key and the database address', () => {
+  const { realtimeConfig, clientConfig } = require('../src/realtime');
+  const pooler = 'postgresql://postgres.ikqlabc123:pw@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres';
+  assert.equal(realtimeConfig({ DATABASE_URL: pooler }), null, 'no key: keep polling');
+  const cfg = realtimeConfig({ DATABASE_URL: pooler, SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_x' });
+  assert.deepEqual(cfg, { url: 'https://ikqlabc123.supabase.co', key: 'sb_publishable_x', topic: 'babji_RestaurantKitchen_live' });
+  assert.equal(realtimeConfig({ SUPABASE_URL: 'https://abc.supabase.co/rest/v1/', SUPABASE_ANON_KEY: 'k' }).url, 'https://abc.supabase.co');
+  assert.equal(realtimeConfig({ DATABASE_URL: 'postgresql://postgres:pw@db.zzz9.supabase.co:5432/postgres', SUPABASE_ANON_KEY: 'k' }).url, 'https://zzz9.supabase.co');
+  assert.equal(clientConfig(cfg).url, 'wss://ikqlabc123.supabase.co/realtime/v1/websocket?apikey=sb_publishable_x&vsn=2.0.0');
+});
+
+test('broadcast sends one small Supabase Realtime message and never throws', async () => {
+  const { broadcast } = require('../src/realtime');
+  const calls = [];
+  const fakeFetch = async (url, opts) => { calls.push({ url, opts }); return { ok: true }; };
+  const cfg = { url: 'https://abc.supabase.co', key: 'sb_publishable_x', topic: 'babji_RestaurantKitchen_live' };
+  assert.equal(await broadcast(cfg, { version: 7 }, { fetchImpl: fakeFetch }), true);
+  assert.equal(calls[0].url, 'https://abc.supabase.co/realtime/v1/api/broadcast');
+  assert.equal(calls[0].opts.headers.apikey, 'sb_publishable_x');
+  assert.equal(calls[0].opts.headers.Authorization, undefined, 'new keys are not JWTs');
+  assert.deepEqual(JSON.parse(calls[0].opts.body), { messages: [{ topic: 'babji_RestaurantKitchen_live', event: 'change', payload: { version: 7 }, private: false }] });
+  await broadcast({ ...cfg, key: 'aaa.bbb.ccc' }, { version: 8 }, { fetchImpl: fakeFetch });
+  assert.equal(calls[1].opts.headers.Authorization, 'Bearer aaa.bbb.ccc', 'legacy anon JWT also sent as bearer');
+  assert.equal(await broadcast(cfg, {}, { fetchImpl: async () => { throw new Error('offline'); } }), false);
+});
+
+test('[postgres] every write is announced over WebSocket before the reply, and a failure never breaks the write', async () => {
+  const sent = [];
+  const realtime = { url: 'https://abc.supabase.co', key: 'k', topic: 't' };
+  const { call, close } = await serve(await pgliteDb(), { push: false, realtime, broadcastImpl: async (cfg, payload) => { sent.push(payload); return true; } });
+  const v = (await call('/api/version')).body;
+  assert.equal(v.realtime.url, 'wss://abc.supabase.co/realtime/v1/websocket?apikey=k&vsn=2.0.0');
+  assert.equal(v.realtime.topic, 't');
+  const menu = (await call('/api/menu')).body;
+  assert.equal(sent.length, 0, 'reads are not announced');
+  const r = await call('/api/tables/2/orders', { method: 'POST', body: { items: [{ item_id: menu.items[0].id, qty: 1 }] } });
+  assert.equal(r.status, 200);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].version, (await call('/api/version')).body.version, 'announces the new version');
+  await close();
+
+  const broken = await serve(await pgliteDb(), { push: false, realtime, broadcastImpl: async () => { throw new Error('supabase down'); } });
+  const m2 = (await broken.call('/api/menu')).body;
+  assert.equal((await broken.call('/api/tables/2/orders', { method: 'POST', body: { items: [{ item_id: m2.items[0].id, qty: 1 }] } })).status, 200);
+  await broken.close();
+});
