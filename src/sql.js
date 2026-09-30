@@ -1,8 +1,7 @@
 'use strict';
 // One small async database interface, three engines:
 //   sqlite   - local file via Node's built-in node:sqlite (npm start)
-//   postgres - any Postgres via DATABASE_URL / POSTGRES_URL: Neon (its serverless driver)
-//              or Supabase / self-hosted (the standard pg driver), chosen from the address
+//   postgres - Supabase (or any Postgres) via DATABASE_URL / POSTGRES_URL, standard pg driver
 //   pglite   - in-process Postgres, used by the tests to prove the Postgres SQL
 //
 // Every engine exposes:
@@ -65,18 +64,12 @@ function sqliteDb(file) {
   };
 }
 
-// Neon's driver speaks to Neon's WebSocket proxy only; everything else gets node-postgres.
+// On Vercel use Supabase's Transaction pooler address (port 6543): each short-lived function
+// borrows a pooled connection instead of opening its own.
 function makePool(connectionString, { max } = {}) {
   const host = (() => { try { return new URL(connectionString).hostname; } catch { return ''; } })();
-  if (/\.neon\.tech$/.test(host)) {
-    const { Pool, neonConfig, types } = require('@neondatabase/serverless');
-    if (globalThis.WebSocket) neonConfig.webSocketConstructor = globalThis.WebSocket;
-    // BIGINT (timestamps in ms, COUNT, SUM) and NUMERIC (AVG) arrive as strings by default.
-    types.setTypeParser(20, Number);
-    types.setTypeParser(1700, Number);
-    return new Pool({ connectionString, max: max ?? 5 });
-  }
   const { Pool, types } = require('pg');
+  // BIGINT (timestamps in ms, COUNT, SUM) and NUMERIC (AVG) arrive as strings by default.
   types.setTypeParser(20, Number);
   types.setTypeParser(1700, Number);
   const local = ['localhost', '127.0.0.1', '::1', ''].includes(host);
