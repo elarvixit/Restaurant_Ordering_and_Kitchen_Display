@@ -197,7 +197,8 @@
   const split = { names: [], units: [], assign: [] }; // units: one per item unit; assign[i] = payer index
   const MAX_PAYERS = 10;
 
-  function openSplit() {
+  async function openSplit() {
+    if (!state.menu.items.length) state.menu = await api('/api/menu').catch(() => state.menu); // for the dish photos
     const b = state.bill;
     split.units = b.orders.flatMap((o) => o.items.flatMap((l) => Array.from({ length: l.qty }, (_, k) => ({
       line_id: l.id, name: l.item_name, price: l.unit_price_at_order, k: k + 1, of: l.qty, item: state.menu.items.find((m) => m.id === l.item_id) || { emoji: '🍽️' },

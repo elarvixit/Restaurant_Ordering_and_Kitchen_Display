@@ -533,3 +533,44 @@ dialog[open]::backdrop { animation: fade .25s ease; }
 .ticket.nudge { animation: nudge .6s ease-in-out 2; }
 @keyframes nudge { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
 @media (prefers-reduced-motion: reduce) { #soundBtn.attention, .ticket.nudge { animation: none; } }
+
+/* ---------- split bill ---------- */
+.close-actions { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 14px; }
+dialog.wide-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); }
+dialog.wide-dialog .dialog-body { max-height: calc(100dvh - 32px); overflow: auto; }
+.payer-dot {
+  flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+  font-size: .78rem; font-weight: 800; color: #fff; background: var(--pc, var(--accent));
+}
+[data-p="0"] { --pc: #c2410c; } [data-p="1"] { --pc: #2563eb; } [data-p="2"] { --pc: #15803d; }
+[data-p="3"] { --pc: #9333ea; } [data-p="4"] { --pc: #b45309; } [data-p="5"] { --pc: #0e7490; }
+.split-payers { display: grid; gap: 10px; }
+.payer-names { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.payer-name { display: flex; align-items: center; gap: 8px; }
+.payer-name input { min-width: 0; flex: 1; }
+.payer-count { display: flex; align-items: center; gap: 10px; }
+.split-units { display: grid; gap: 2px; max-height: 42vh; overflow: auto; border: 1px solid var(--line); border-radius: 12px; padding: 4px 10px; }
+.split-unit { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.split-unit:last-child { border-bottom: 0; }
+.payer-pick { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.pick {
+  width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--pc); background: transparent;
+  color: var(--pc); font-weight: 800; cursor: pointer; transition: transform .12s, background .12s;
+}
+.pick:hover { transform: scale(1.08); }
+.pick.on { background: var(--pc); color: #fff; }
+.split-summary { display: grid; gap: 6px; }
+.payer-total { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
+.payer-total.empty { outline: 2px dashed var(--danger); outline-offset: -2px; }
+.payer-total.grand { background: transparent; border-top: 1px dashed var(--line); border-radius: 0; font-weight: 700; }
+.receipts { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.receipt { border: 1px dashed var(--line); border-radius: 12px; padding: 12px; font-variant-numeric: tabular-nums; }
+.receipt header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.receipt-line { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; font-size: .9rem; }
+.receipt-line.grand { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 6px; font-weight: 800; font-size: 1rem; }
+@media print {
+  body > *:not(#receiptDialog) { display: none !important; }
+  #receiptDialog { position: static; box-shadow: none; width: auto; max-height: none; }
+  #receiptDialog .dialog-actions { display: none; }
+  .receipt { break-inside: avoid; }
+}
