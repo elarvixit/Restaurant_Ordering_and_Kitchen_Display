@@ -157,6 +157,7 @@
 
   async function loadBill() {
     const b = await api(`/api/tables/${state.selectedTable}/bill`);
+    state.bill = b;
     const unserved = b.orders.filter((o) => o.status !== 'Served');
     $('billPanel').innerHTML = `
       <div class="panel-head"><h2>Table ${b.table.number}</h2><span class="muted">${b.orders.length ? `${b.orders.length} open order${b.orders.length === 1 ? '' : 's'}` : 'Free'}</span></div>
@@ -173,12 +174,137 @@
           <div class="muted"><span>GST ${b.gst_rate_percent}%</span><span>${money(b.gst_paise)}</span></div>
           <div class="grand"><span>Total</span><span>${money(b.total_paise)}</span></div>
         </div>
-        <button class="btn primary block" id="closeTableBtn" style="margin-top:14px" type="button" ${b.can_close ? '' : 'disabled'}>Close table · mark paid</button>
+        <div class="close-actions">
+          <button class="btn primary" id="closeTableBtn" type="button" ${b.can_close ? '' : 'disabled'}>Close table · mark paid</button>
+          <button class="btn" id="splitBillBtn" type="button" ${b.can_close ? '' : 'disabled'} title="Each person pays for their own items">✂ Split bill</button>
+        </div>
         ${unserved.length ? `<p class="lock-note">Can't close yet: ${unserved.map((o) => `#${o.id} is ${o.status}`).join(', ')}.</p>` : ''}`
       : '<p class="empty">No open orders. This table is free.</p>'}`;
   }
 
+  // ---------- split bill by item ----------
+  // Same rule as the server (src/store.js splitGst): 5% of each payer's subtotal rounded down, the
+  // leftover paise go to the largest remainders, so the shares always add up to the bill's GST.
+  function splitGst(subtotals, totalGst, rate) {
+    const exact = subtotals.map((s) => (s * rate) / 100);
+    const shares = exact.map(Math.floor);
+    let left = totalGst - shares.reduce((a, c) => a + c, 0);
+    const order = exact.map((x, i) => [x - Math.floor(x), i]).sort((a, c) => c[0] - a[0] || a[1] - c[1]);
+    for (let k = 0; left > 0 && k < order.length; k++, left--) shares[order[k][1]] += 1;
+    return shares;
+  }
+
+  const split = { names: [], units: [], assign: [] }; // units: one per item unit; assign[i] = payer index
+  const MAX_PAYERS = 10;
+
+  function openSplit() {
+    const b = state.bill;
+    split.units = b.orders.flatMap((o) => o.items.flatMap((l) => Array.from({ length: l.qty }, (_, k) => ({
+      line_id: l.id, name: l.item_name, price: l.unit_price_at_order, k: k + 1, of: l.qty, item: state.menu.items.find((m) => m.id === l.item_id) || { emoji: '🍽️' },
+    }))));
+    split.names = ['Payer 1', 'Payer 2'];
+    split.assign = split.units.map(() => 0);
+    $('splitTitle').textContent = `Split bill · Table ${b.table.number}`;
+    $('splitError').textContent = '';
+    renderSplit();
+    $('splitDialog').showModal();
+  }
+
+  function payerTotals() {
+    const subs = split.names.map((_, p) => split.units.reduce((s, u, i) => s + (split.assign[i] === p ? u.price : 0), 0));
+    const gst = splitGst(subs, state.bill.gst_paise, state.bill.gst_rate_percent);
+    return subs.map((s, p) => ({ subtotal: s, gst: gst[p], total: s + gst[p], count: split.assign.filter((a) => a === p).length }));
+  }
+
+  function renderSplit() {
+    const n = split.names.length;
+    $('payerCount').textContent = `${n} payers`;
+    $('payerLess').disabled = n <= 2;
+    $('payerMore').disabled = n >= MAX_PAYERS || n >= split.units.length;
+    $('payerNames').innerHTML = split.names.map((name, p) => `
+      <label class="payer-name" data-payer="${p}"><span class="payer-dot" data-p="${p % 6}">${p + 1}</span>
+        <input type="text" maxlength="30" value="${esc(name)}" data-name="${p}" aria-label="Name of payer ${p + 1}"></label>`).join('');
+    $('splitUnits').innerHTML = split.units.map((u, i) => `
+      <div class="split-unit">
+        <span class="line-item">${App.dishPic(u.item, 'sm')}<span><strong>${esc(u.name)}</strong>${u.of > 1 ? ` <span class="muted">(${u.k} of ${u.of})</span>` : ''}
+          <span class="muted num" style="display:block;font-size:.82rem">${money(u.price)}</span></span></span>
+        <span class="payer-pick" role="group" aria-label="Who pays for ${esc(u.name)}">
+          ${split.names.map((name, p) => `<button type="button" class="pick ${split.assign[i] === p ? 'on' : ''}" data-p="${p % 6}" data-unit="${i}" data-payer="${p}"
+            aria-pressed="${split.assign[i] === p}" title="${esc(name)}">${p + 1}</button>`).join('')}
+        </span>
+      </div>`).join('');
+    renderSplitSummary();
+  }
+
+  function renderSplitSummary() {
+    const t = payerTotals();
+    const empty = t.map((x, p) => (x.count ? null : split.names[p] || `Payer ${p + 1}`)).filter(Boolean);
+    $('splitSummary').innerHTML = split.names.map((name, p) => `
+      <div class="payer-total ${t[p].count ? '' : 'empty'}"><span class="payer-dot" data-p="${p % 6}">${p + 1}</span>
+        <span><strong>${esc(name || `Payer ${p + 1}`)}</strong><span class="muted" style="display:block;font-size:.8rem">${t[p].count} item${t[p].count === 1 ? '' : 's'} · ${money(t[p].subtotal)} + GST ${money(t[p].gst)}</span></span>
+        <strong class="num">${money(t[p].total)}</strong></div>`).join('')
+      + `<div class="payer-total grand"><span></span><span>Bill total</span><strong class="num">${money(state.bill.total_paise)}</strong></div>`;
+    $('splitSave').disabled = empty.length > 0;
+    $('splitSave').textContent = empty.length ? `Give ${empty[0]} at least one item` : `Close table · split ${split.names.length} ways`;
+  }
+
+  $('splitUnits').addEventListener('click', (e) => {
+    const b = e.target.closest('.pick');
+    if (!b) return;
+    split.assign[Number(b.dataset.unit)] = Number(b.dataset.payer);
+    b.parentElement.querySelectorAll('.pick').forEach((x) => { const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
+    renderSplitSummary();
+  });
+  $('payerNames').addEventListener('input', (e) => {
+    if (e.target.dataset.name === undefined) return;
+    split.names[Number(e.target.dataset.name)] = e.target.value;
+    renderSplitSummary();
+  });
+  $('payerMore').addEventListener('click', () => { split.names.push(`Payer ${split.names.length + 1}`); renderSplit(); });
+  $('payerLess').addEventListener('click', () => {
+    const last = split.names.length - 1;
+    split.names.pop();
+    split.assign = split.assign.map((a) => (a === last ? 0 : a)); // the removed payer's items go back to payer 1
+    renderSplit();
+  });
+
+  $('splitForm').addEventListener('submit', async (e) => {
+    if (e.submitter?.value !== 'save') return;
+    e.preventDefault();
+    const payers = split.names.map((name, p) => {
+      const byLine = new Map();
+      split.units.forEach((u, i) => { if (split.assign[i] === p) byLine.set(u.line_id, (byLine.get(u.line_id) || 0) + 1); });
+      return { name: name.trim() || `Payer ${p + 1}`, items: [...byLine].map(([line_id, qty]) => ({ line_id, qty })) };
+    });
+    $('splitSave').disabled = true;
+    try {
+      const r = await api(`/api/admin/tables/${state.selectedTable}/close`, { method: 'POST', body: { payers } });
+      $('splitDialog').close();
+      showReceipts(r);
+      toast(`Table ${r.table.number} closed · ${money(r.total_paise)} split ${r.payers.length} ways`, 'good');
+    } catch (err) {
+      $('splitError').textContent = err.message;
+      $('splitSave').disabled = false;
+    }
+    await loadTables();
+  });
+
+  function showReceipts(r) {
+    $('receiptTitle').textContent = `Table ${r.table.number} · bill #${r.bill_id} closed`;
+    $('receiptBody').innerHTML = r.payers.map((p) => `
+      <section class="receipt">
+        <header><span class="payer-dot" data-p="${(p.payer_no - 1) % 6}">${p.payer_no}</span><strong>${esc(p.name)}</strong></header>
+        ${p.items.map((l) => `<div class="receipt-line"><span>${esc(l.item_name)} <span class="muted">× ${l.qty}</span></span><span class="num">${money(l.line_total_paise)}</span></div>`).join('')}
+        <div class="receipt-line muted"><span>Subtotal</span><span class="num">${money(p.subtotal_paise)}</span></div>
+        <div class="receipt-line muted"><span>GST ${r.gst_rate_percent}%</span><span class="num">${money(p.gst_paise)}</span></div>
+        <div class="receipt-line grand"><span>To pay</span><span class="num">${money(p.total_paise)}</span></div>
+      </section>`).join('');
+    $('receiptDialog').showModal();
+  }
+  $('printReceipts').addEventListener('click', () => window.print());
+
   $('billPanel').addEventListener('click', async (e) => {
+    if (e.target.id === 'splitBillBtn') return openSplit();
     if (e.target.id !== 'closeTableBtn') return;
     const t = state.tables.find((x) => x.id === state.selectedTable);
     if (!confirm(`Close table ${t?.number}? All its orders will be marked paid.`)) return;
