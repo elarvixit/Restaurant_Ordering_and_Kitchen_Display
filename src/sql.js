@@ -66,7 +66,7 @@ function sqliteDb(file) {
 }
 
 // Neon's driver speaks to Neon's WebSocket proxy only; everything else gets node-postgres.
-function makePool(connectionString) {
+function makePool(connectionString, { max } = {}) {
   const host = (() => { try { return new URL(connectionString).hostname; } catch { return ''; } })();
   if (/\.neon\.tech$/.test(host)) {
     const { Pool, neonConfig, types } = require('@neondatabase/serverless');
@@ -74,7 +74,7 @@ function makePool(connectionString) {
     // BIGINT (timestamps in ms, COUNT, SUM) and NUMERIC (AVG) arrive as strings by default.
     types.setTypeParser(20, Number);
     types.setTypeParser(1700, Number);
-    return new Pool({ connectionString, max: 5 });
+    return new Pool({ connectionString, max: max ?? 5 });
   }
   const { Pool, types } = require('pg');
   types.setTypeParser(20, Number);
@@ -84,11 +84,11 @@ function makePool(connectionString) {
   // which Node doesn't ship, so the connection is encrypted without CA verification. sslmode is
   // removed from the URL because pg would otherwise insist on full verification.
   const url = connectionString.replace(/([?&])sslmode=[^&]*&?/, '$1').replace(/[?&]$/, '');
-  return new Pool({ connectionString: url, max: 3, ssl: local ? false : { rejectUnauthorized: false } });
+  return new Pool({ connectionString: url, max: max ?? 3, ssl: local ? false : { rejectUnauthorized: false } });
 }
 
-function postgresDb(connectionString) {
-  const pool = makePool(connectionString);
+function postgresDb(connectionString, options) {
+  const pool = makePool(connectionString, options);
 
   const wrap = (client) => ({
     dialect: 'postgres',

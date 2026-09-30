@@ -17,7 +17,8 @@ async function pgDriverDb() {
   const port = nextPort++;
   const server = new PGLiteSocketServer({ db: await PGlite.create(), port, host: '127.0.0.1' });
   await server.start();
-  const db = postgresDb(`postgres://postgres@127.0.0.1:${port}/postgres`);
+  // max: 1 because the test server accepts one connection at a time.
+  const db = postgresDb(`postgres://postgres@127.0.0.1:${port}/postgres`, { max: 1 });
   return { ...db, close: async () => { await db.close(); await server.stop(); } };
 }
 
