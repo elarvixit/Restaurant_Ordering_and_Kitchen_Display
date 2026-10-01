@@ -163,6 +163,9 @@
   // ---------- add dialog ----------
 
   let adding = null;
+  // Dish cards and table buttons lean towards the pointer in 3D (mouse only; see App.tilt).
+  App.tilt(document.body, '.menu-card:not(.off), .table-btn', 8);
+
   $('menu').addEventListener('click', (e) => {
     const b = e.target.closest('[data-add]');
     if (!b) return;
@@ -204,7 +207,8 @@
     renderSide();
   });
 
-  // The dish picture arcs from its card into the cart, then the cart gives a little bump.
+  // The dish picture flies from its card into the cart through 3D space (lifting towards the
+  // viewer, flipping over, then shrinking away into the cart), then the cart gives a little bump.
   function flyToCart(fromEl, item) {
     const fab = $('cartFab');
     const target = getComputedStyle(fab).display !== 'none' ? fab : $('cart').closest('.panel');
@@ -218,10 +222,10 @@
     const dx = b.left + Math.min(b.width, 120) / 2 - (a.left + a.width / 2);
     const dy = b.top + 28 - (a.top + a.height / 2);
     ghost.animate([
-      { transform: 'translate(0, 0) scale(1) rotate(0)', opacity: 1 },
-      { transform: `translate(${dx * 0.55}px, ${dy * 0.55 - 90}px) scale(.85) rotate(-12deg)`, opacity: 1, offset: 0.55 },
-      { transform: `translate(${dx}px, ${dy}px) scale(.3) rotate(10deg)`, opacity: 0.1 },
-    ], { duration: 700, easing: 'cubic-bezier(.45, 0, .25, 1)' }).onfinish = () => {
+      { transform: 'perspective(700px) translate3d(0, 0, 0) rotateX(0) rotateY(0) scale(1)', opacity: 1 },
+      { transform: `perspective(700px) translate3d(${dx * 0.5}px, ${dy * 0.5 - 110}px, 180px) rotateX(18deg) rotateY(200deg) scale(1.05)`, opacity: 1, offset: 0.5 },
+      { transform: `perspective(700px) translate3d(${dx}px, ${dy}px, -60px) rotateX(0) rotateY(400deg) scale(.32)`, opacity: 0.15 },
+    ], { duration: 820, easing: 'cubic-bezier(.45, 0, .25, 1)' }).onfinish = () => {
       ghost.remove();
       App.replay(target, 'bump');
     };

@@ -26,8 +26,26 @@
   </div>
   <main class="landing">
     <div class="landing-top"><div class="brand"><span class="brand-mark">🍛</span> Tandoor House</div><button class="btn small theme-btn" type="button" data-theme-toggle></button></div>
-    <h1 style="margin-top:28px">Choose a screen</h1>
-    <p class="muted">All three screens read and write the same database, so an order placed at a table shows up in the kitchen within a second or two.</p>
+    <div class="hero">
+      <div>
+        <h1>Choose a screen</h1>
+        <p class="muted">All three screens read and write the same database, so an order placed at a table shows up in the kitchen within a second or two.</p>
+      </div>
+      <!-- 3D carousel: eight dish photos on a slowly turning ring (CSS 3D, pauses on hover). -->
+      <div class="plate-stage" aria-hidden="true">
+        <div class="plate-ring">
+          <span class="plate" style="--i:0"><img src="/img/menu/butter-chicken.jpg" alt=""></span>
+          <span class="plate" style="--i:1"><img src="/img/menu/paneer-tikka.jpg" alt=""></span>
+          <span class="plate" style="--i:2"><img src="/img/menu/chicken-biryani.jpg" alt=""></span>
+          <span class="plate" style="--i:3"><img src="/img/menu/gulab-jamun.jpg" alt=""></span>
+          <span class="plate" style="--i:4"><img src="/img/menu/masala-chai.jpg" alt=""></span>
+          <span class="plate" style="--i:5"><img src="/img/menu/dal-makhani.jpg" alt=""></span>
+          <span class="plate" style="--i:6"><img src="/img/menu/amritsari-fish.jpg" alt=""></span>
+          <span class="plate" style="--i:7"><img src="/img/menu/garlic-naan.jpg" alt=""></span>
+        </div>
+        <span class="plate-shadow"></span>
+      </div>
+    </div>
     <div class="screens">
       <a class="screen-card" href="/customer">
         <span class="icon">🧾</span>
@@ -49,5 +67,7 @@
       </a>
     </div>
   </main>
+  <script src="/js/common.js"></script>
+  <script src="/js/home.js"></script>
 </body>
 </html>

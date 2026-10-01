@@ -236,6 +236,31 @@ const App = (() => {
     requestAnimationFrame(step);
   }
 
+  // 3D tilt: cards matching `selector` inside `root` lean towards the pointer, with a glare where it
+  // points. Mouse and trackpad only (touch screens just tap), and off when less motion is asked for.
+  // Delegated, so cards that are re-rendered keep tilting. CSS: .tilt / .tilting in app.css.
+  function tilt(root, selector, max = 9) {
+    if (!root || reducedMotion() || !window.matchMedia?.('(hover: hover) and (pointer: fine)').matches) return;
+    let current = null, frame = 0;
+    const reset = (el) => { if (!el) return; el.classList.remove('tilting'); el.style.removeProperty('--rx'); el.style.removeProperty('--ry'); };
+    root.addEventListener('pointermove', (e) => {
+      const el = e.target.closest?.(selector);
+      if (el !== current) { reset(current); current = el && root.contains(el) ? el : null; }
+      if (!current) return;
+      const r = current.getBoundingClientRect(), px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!current) return;
+        current.classList.add('tilt', 'tilting');
+        current.style.setProperty('--ry', `${((px - 0.5) * 2 * max).toFixed(2)}deg`);
+        current.style.setProperty('--rx', `${((0.5 - py) * 2 * max).toFixed(2)}deg`);
+        current.style.setProperty('--gx', `${(px * 100).toFixed(1)}%`);
+        current.style.setProperty('--gy', `${(py * 100).toFixed(1)}%`);
+      });
+    });
+    root.addEventListener('pointerleave', () => { cancelAnimationFrame(frame); reset(current); current = null; });
+  }
+
   // Replays a CSS animation class on an element.
   function replay(el, cls) {
     if (!el || reducedMotion()) return;
@@ -262,5 +287,5 @@ const App = (() => {
   }
 
   return { api, ApiError, esc, money, moneyShort, now, minutesSince, clock, duration, live, toast, pinGate, logout, syncBadge,
-    dishPic, countUp, replay, reducedMotion };
+    dishPic, countUp, replay, reducedMotion, tilt };
 })();
