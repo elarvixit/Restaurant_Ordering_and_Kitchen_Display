@@ -141,7 +141,7 @@ label.field { display: grid; gap: 4px; font-size: .88rem; color: var(--ink-2); f
 .veg-mark.nv::after { background: none; width: 0; height: 0; border-radius: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 7px solid var(--nonveg); }
 
 /* ---------- customer ---------- */
-.table-picker { max-width: 720px; margin: 0 auto; padding: 32px 16px; }
+.table-picker { max-width: 880px; margin: 0 auto; padding: 32px 16px; }
 .table-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 12px; margin-top: 20px; }
 .table-btn {
   aspect-ratio: 1.2; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface);
@@ -629,4 +629,53 @@ dialog[open] #addPic .dish-pic { animation: pic-swing .65s cubic-bezier(.2, .8, 
 @media (prefers-reduced-motion: reduce) {
   .plate-ring { animation: none !important; transform: rotateX(-14deg) rotateY(-20deg); }
   dialog[open] #addPic .dish-pic { animation: none !important; }
+}
+
+/* Customer table picker: a round dining table in CSS 3D, slowly turning.
+   The scene is a point on a tilted "floor"; everything is placed from that centre.
+   Heights above the floor (translateZ): chair seats 26px, tabletop 46px. */
+.picker-head { display: grid; grid-template-columns: minmax(0, 1fr) 400px; align-items: center; gap: 8px; }
+.dine-stage { --k: 1; height: 270px; display: grid; place-items: center; perspective: 900px; }
+.dine-scene { position: relative; width: 0; height: 0; transform-style: preserve-3d; animation: dine-spin 28s linear infinite; }
+.dine-stage:hover .dine-scene { animation-play-state: paused; }
+@keyframes dine-spin {
+  from { transform: rotateX(58deg) scale(var(--k)) rotateZ(0deg); }
+  to   { transform: rotateX(58deg) scale(var(--k)) rotateZ(360deg); }
+}
+.dine-scene > *, .dine-top > * { position: absolute; display: block; transform-style: preserve-3d; }
+.dine-shadow { left: -190px; top: -190px; width: 380px; height: 380px; border-radius: 50%; background: radial-gradient(circle, rgba(30, 25, 15, .32), transparent 65%); }
+/* The pedestal: two crossed upright panels, so it looks solid from every side. */
+.dine-leg { left: -14px; top: -46px; width: 28px; height: 46px; transform-origin: 50% 100%; transform: rotateX(-90deg); background: linear-gradient(90deg, #4a2d18, #7a4b2a 50%, #4a2d18); border-radius: 4px; }
+.dine-leg.cross { transform: rotateZ(90deg) rotateX(-90deg); }
+/* Chairs: a seat, and a backrest standing up on its outer edge. */
+.chair {
+  left: -26px; top: -26px; width: 52px; height: 52px; border-radius: 12px;
+  transform: rotateZ(var(--a)) translateY(-152px) translateZ(26px);
+  background: linear-gradient(135deg, #b8732f, #8c5424); box-shadow: inset 0 0 0 3px rgba(0, 0, 0, .12);
+}
+.chair i {
+  position: absolute; left: 0; top: -40px; width: 52px; height: 40px; border-radius: 12px 12px 4px 4px;
+  transform-origin: 50% 100%; transform: rotateX(-90deg);
+  background: linear-gradient(180deg, #c98443, #94592a);
+}
+/* Tabletop and its edge (a darker disc just below, which reads as the table's thickness). */
+.dine-edge { left: -116px; top: -116px; width: 232px; height: 232px; border-radius: 50%; transform: translateZ(40px); background: #5a3820; }
+.dine-top {
+  left: -116px; top: -116px; width: 232px; height: 232px; border-radius: 50%; transform: translateZ(46px);
+  background: radial-gradient(circle at 38% 32%, #d9a06a, #a8683a 60%, #8a5430); border: 6px solid #6d4426;
+  box-sizing: border-box;
+}
+.dine-plate {
+  left: 87px; top: 87px; width: 46px; height: 46px; border-radius: 50%; overflow: hidden; background: #fbf6ee;
+  border: 4px solid #fbf6ee; box-shadow: 0 2px 4px rgba(0, 0, 0, .3);
+  transform: rotateZ(var(--a)) translateY(-70px) translateZ(1px);
+}
+.dine-plate img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.dine-center { left: 96px; top: 96px; width: 28px; height: 28px; border-radius: 50%; transform: translateZ(1px); background: radial-gradient(circle at 35% 35%, #f6d27a, #c58f2a); box-shadow: 0 0 0 4px rgba(246, 210, 122, .35); }
+@media (max-width: 760px) {
+  .picker-head { grid-template-columns: minmax(0, 1fr); }
+  .dine-stage { --k: .72; height: 200px; order: -1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dine-scene { animation: none !important; transform: rotateX(58deg) scale(var(--k)) rotateZ(20deg); }
 }

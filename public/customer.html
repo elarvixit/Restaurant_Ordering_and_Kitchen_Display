@@ -18,8 +18,36 @@
   </header>
 
   <section id="picker" class="table-picker hidden">
-    <h1>Welcome! Which table are you at?</h1>
-    <p class="muted">You'll find the number on the stand at your table.</p>
+    <div class="picker-head">
+      <div>
+        <h1>Welcome! Which table are you at?</h1>
+        <p class="muted">You'll find the number on the stand at your table.</p>
+      </div>
+      <!-- Decorative 3D dining table (CSS 3D): a round table on a pedestal, six chairs and six
+           plates with dish photos, slowly turning. Still for people who ask for less motion. -->
+      <div class="dine-stage" aria-hidden="true">
+        <div class="dine-scene">
+          <span class="dine-shadow"></span>
+          <span class="dine-leg"></span><span class="dine-leg cross"></span>
+          <span class="chair" style="--a:0deg"><i></i></span>
+          <span class="chair" style="--a:60deg"><i></i></span>
+          <span class="chair" style="--a:120deg"><i></i></span>
+          <span class="chair" style="--a:180deg"><i></i></span>
+          <span class="chair" style="--a:240deg"><i></i></span>
+          <span class="chair" style="--a:300deg"><i></i></span>
+          <span class="dine-edge"></span>
+          <div class="dine-top">
+            <span class="dine-plate" style="--a:0deg"><img src="/img/menu/butter-chicken.jpg" alt=""></span>
+            <span class="dine-plate" style="--a:60deg"><img src="/img/menu/butter-naan.jpg" alt=""></span>
+            <span class="dine-plate" style="--a:120deg"><img src="/img/menu/chicken-biryani.jpg" alt=""></span>
+            <span class="dine-plate" style="--a:180deg"><img src="/img/menu/paneer-tikka.jpg" alt=""></span>
+            <span class="dine-plate" style="--a:240deg"><img src="/img/menu/dal-makhani.jpg" alt=""></span>
+            <span class="dine-plate" style="--a:300deg"><img src="/img/menu/masala-chai.jpg" alt=""></span>
+            <span class="dine-center"></span>
+          </div>
+        </div>
+      </div>
+    </div>
     <div id="tableGrid" class="table-grid"></div>
   </section>
 
