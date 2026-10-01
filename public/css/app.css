@@ -595,7 +595,7 @@ dialog.wide-dialog .dialog-body { max-height: calc(100dvh - 32px); overflow: aut
 .menu-card.tilt.tilting .dish-pic { transform: translateZ(36px) scale(1.04); box-shadow: 0 14px 22px rgba(30, 25, 15, .25); }
 .menu-card.tilt.tilting .add { transform: translateZ(22px); }
 .table-btn.tilt.tilting strong { transform: translateZ(30px); }
-.screen-card.tilt.tilting .icon { transform: translateZ(40px) scale(1.2) rotate(-8deg); }
+.screen-card.tilt.tilting .icon { transform: translateZ(26px) scale(1.12) rotate(-6deg); }
 /* Frosted glass flattens 3D, so a home card loses its blur while it is being tilted. */
 .home .screen-card.tilt.tilting { -webkit-backdrop-filter: none; backdrop-filter: none; background: color-mix(in srgb, var(--surface) 92%, transparent); }
 
