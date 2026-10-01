@@ -425,14 +425,14 @@ table.data td.r, table.data th.r { text-align: right; }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(16px) scale(.96); } to { opacity: 1; transform: none; } }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
-.menu-card.enter { animation: rise .45s cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+.menu-card.enter { animation: rise .45s cubic-bezier(.2,.8,.2,1) backwards; animation-delay: calc(var(--i, 0) * 45ms); }
 .bump { animation: bump .45s ease; }
 .pop { display: inline-block; animation: pop .5s cubic-bezier(.34,1.56,.64,1); }
 dialog[open] { animation: dialog-in .28s cubic-bezier(.2,.8,.2,1); }
 dialog[open]::backdrop { animation: fade .25s ease; }
 .toast { animation: rise .3s cubic-bezier(.2,.8,.2,1); }
-.table-grid.enter .table-btn { animation: rise .4s cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--n, 0) * 30ms); }
-.screen-card { animation: rise .5s cubic-bezier(.2,.8,.2,1) both; }
+.table-grid.enter .table-btn { animation: rise .4s cubic-bezier(.2,.8,.2,1) backwards; animation-delay: calc(var(--n, 0) * 30ms); }
+.screen-card { animation: rise .5s cubic-bezier(.2,.8,.2,1) backwards; }
 .screen-card:nth-child(2) { animation-delay: .08s; }
 .screen-card:nth-child(3) { animation-delay: .16s; }
 .landing h1, .landing > p { animation: rise .5s cubic-bezier(.2,.8,.2,1) both; }
@@ -573,4 +573,60 @@ dialog.wide-dialog .dialog-body { max-height: calc(100dvh - 32px); overflow: aut
   #receiptDialog { position: static; box-shadow: none; width: auto; max-height: none; }
   #receiptDialog .dialog-actions { display: none; }
   .receipt { break-inside: avoid; }
+}
+
+/* ---------- 3D (CSS only) ---------- */
+/* Tilt: App.tilt() sets --rx / --ry (lean) and --gx / --gy (glare spot) while the pointer is over a card. */
+.tilt { position: relative; transform-style: preserve-3d; }
+.menu-card.tilt.tilting, .table-btn.tilt.tilting, .screen-card.tilt.tilting {
+  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-6px);
+  transition: transform .08s linear, box-shadow .25s, border-color .2s;
+  box-shadow: 0 24px 44px rgba(30, 25, 15, .2);
+}
+.tilt::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .25s;
+  background: radial-gradient(circle at var(--gx, 50%) var(--gy, 50%), rgba(255, 255, 255, .38), transparent 55%);
+}
+.tilt.tilting::after { opacity: 1; }
+:root[data-theme="dark"] .tilt::after { background: radial-gradient(circle at var(--gx, 50%) var(--gy, 50%), rgba(255, 255, 255, .12), transparent 55%); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tilt::after { background: radial-gradient(circle at var(--gx, 50%) var(--gy, 50%), rgba(255, 255, 255, .12), transparent 55%); } }
+/* Depth: the dish photo, price button and card icon float above the tilted card. */
+.menu-card.tilt .dish-pic, .menu-card.tilt .add, .table-btn.tilt strong, .screen-card.tilt .icon { transition: transform .25s cubic-bezier(.2,.8,.2,1); }
+.menu-card.tilt.tilting .dish-pic { transform: translateZ(36px) scale(1.04); box-shadow: 0 14px 22px rgba(30, 25, 15, .25); }
+.menu-card.tilt.tilting .add { transform: translateZ(22px); }
+.table-btn.tilt.tilting strong { transform: translateZ(30px); }
+.screen-card.tilt.tilting .icon { transform: translateZ(40px) scale(1.2) rotate(-8deg); }
+/* Frosted glass flattens 3D, so a home card loses its blur while it is being tilted. */
+.home .screen-card.tilt.tilting { -webkit-backdrop-filter: none; backdrop-filter: none; background: color-mix(in srgb, var(--surface) 92%, transparent); }
+
+/* Home: eight dish photos on a slowly turning ring. */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 24px; align-items: center; margin-top: 12px; }
+.hero p { animation: rise .5s cubic-bezier(.2,.8,.2,1) .06s both; }
+.plate-stage { --size: 110px; --r: 150px; position: relative; height: 300px; display: grid; place-items: center; perspective: 1000px; }
+.plate-ring { position: relative; width: var(--size); height: var(--size); transform-style: preserve-3d; animation: spin3d 30s linear infinite; }
+.plate-stage:hover .plate-ring { animation-play-state: paused; }
+.plate {
+  position: absolute; inset: 0; border-radius: 22px; overflow: hidden; backface-visibility: hidden;
+  transform: rotateY(calc(var(--i) * 45deg)) translateZ(var(--r));
+  box-shadow: 0 14px 30px rgba(30, 25, 15, .28); border: 3px solid var(--surface);
+}
+.plate img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.plate-shadow {
+  position: absolute; bottom: 34px; width: 340px; height: 46px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(30, 25, 15, .22), transparent 70%);
+}
+@keyframes spin3d { from { transform: rotateX(-14deg) rotateY(0deg); } to { transform: rotateX(-14deg) rotateY(-360deg); } }
+@media (max-width: 760px) {
+  .hero { grid-template-columns: minmax(0, 1fr); }
+  .plate-stage { --size: 84px; --r: 116px; height: 220px; }
+  .plate-shadow { width: 260px; bottom: 22px; }
+}
+
+/* Customer: the add dialog's photo swings in. */
+dialog[open] #addPic .dish-pic { animation: pic-swing .65s cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes pic-swing { from { opacity: 0; transform: perspective(600px) rotateY(-80deg) translateZ(-40px) scale(.8); } to { opacity: 1; transform: perspective(600px) rotateY(0) scale(1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .plate-ring { animation: none !important; transform: rotateX(-14deg) rotateY(-20deg); }
+  dialog[open] #addPic .dish-pic { animation: none !important; }
 }
